@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Cjtronics By Folham",
-    "slug": "Cjtronics By Folham",
+    "slug": "cjtronics-by-folham",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -43,7 +43,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "da383265-1ade-4fb8-9a80-3320abf1917b"
+        "projectId": "f2d827d7-c350-435e-9ba4-9006341455d0"
       }
     }
   }
