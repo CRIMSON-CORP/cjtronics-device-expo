@@ -425,6 +425,7 @@ function VideoWrapper({
 
   return (
     <Video
+      key={videoUrl}
       ref={videoRef}
       style={[
         styles.media,
@@ -435,7 +436,6 @@ function VideoWrapper({
       source={{
         uri: videoUrl,
       }}
-      useNativeControls
       resizeMode={ResizeMode.CONTAIN}
       isLooping
       isMuted
