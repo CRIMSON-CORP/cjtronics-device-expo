@@ -338,7 +338,7 @@ function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
             className="w-full h-full absolute"
             style={{ transform: [{ translateX: index * width }] }}
           >
-            {file.adType === "image" ? (
+            {file.adType === "image" && index === currentAdIndex ? (
               <Image
                 source={{
                   uri: file.adUrl,
@@ -346,14 +346,9 @@ function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
                 alt={file.uploadName}
                 key={currentAdIndex}
                 resizeMode="contain"
-                style={[
-                  styles.media,
-                  {
-                    opacity: index === currentAdIndex ? 1 : 0,
-                  },
-                ]}
+                style={styles.media}
               />
-            ) : file.adType === "video" ? (
+            ) : file.adType === "video" && index === currentAdIndex ? (
               <VideoWrapper
                 index={index}
                 currentAdIndex={currentAdIndex}
@@ -416,13 +411,6 @@ function VideoWrapper({
   const videoRef = useRef<Video | null>(null);
   const [videoUrl, setVideoUrl] = useState(uri);
 
-  useEffect(() => {
-    if (index === currentAdIndex) {
-      videoRef.current?.playAsync();
-      console.log("Playing video at ", index);
-    }
-  }, [videoUrl, index, currentAdIndex]);
-
   return (
     <Video
       key={videoUrl}
@@ -439,7 +427,11 @@ function VideoWrapper({
       resizeMode={ResizeMode.CONTAIN}
       isLooping
       isMuted
-      shouldPlay={index === currentAdIndex}
+      useNativeControls={true}
+      shouldPlay
+      onReadyForDisplay={() => {
+        console.log("video ready ", index);
+      }}
       onError={(e) => {
         console.log(e, " video error ", index);
         if (remoteUrl) {
