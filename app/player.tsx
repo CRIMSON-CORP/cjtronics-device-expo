@@ -427,11 +427,7 @@ function VideoWrapper({
       resizeMode={ResizeMode.CONTAIN}
       isLooping
       isMuted
-      useNativeControls={true}
       shouldPlay
-      onReadyForDisplay={() => {
-        console.log("video ready ", index);
-      }}
       onError={(e) => {
         console.log(e, " video error ", index);
         if (remoteUrl) {
