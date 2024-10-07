@@ -8,6 +8,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -20,6 +21,7 @@ interface ContextProps {
   screenConfig: ScreenConfig;
   deviceCode: LocalState | undefined;
   safeToPlay: boolean;
+  adsBackgroundLoading: boolean;
 }
 
 export const AdContext = createContext<ContextProps>({
@@ -43,6 +45,7 @@ export const AdContext = createContext<ContextProps>({
   },
   deviceCode: "",
   safeToPlay: false,
+  adsBackgroundLoading: false,
 });
 
 function AdProvider({ children }: { children: React.ReactNode }) {
@@ -67,6 +70,10 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { item, setItem, loaded } = useAsyncStorage("cache-ads");
   const [adsFetchFromApi, setAdsFetchFromApi] = useState(false);
+  const [adsBackgroundLoading, setAdsBackgroundLoading] = useState(false);
+  const localLoaded = useRef(false);
+  const localItem = useRef<any>(null);
+  const alreadyUsingLocal = useRef(false);
 
   let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
   const setReceivedAds = useCallback(async (data: any) => {
@@ -96,6 +103,68 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     deviceCode,
   });
 
+  const cacheAdsInBackground = useCallback(async (urls: string[]) => {
+    try {
+      setAdsBackgroundLoading(true);
+      console.log("downloagin ads in background");
+
+      // Create an array of download promises
+      const downloadPromises = urls.map(async (url) => {
+        const fileUri = `${FileSystem.documentDirectory}${url
+          .split("/")
+          .pop()}`;
+        const fileInfo = await FileSystem.getInfoAsync(fileUri);
+        if (fileInfo.exists) {
+          return { uri: fileUri };
+        }
+        return FileSystem.downloadAsync(url, fileUri);
+      });
+
+      // Wait for all promises to resolve
+      const results = await Promise.all(downloadPromises);
+
+      console.log("downloading ads in background successfull");
+      // Get the local paths after download
+      const localPaths = results.map((url) => url.uri);
+      setAdsBackgroundLoading(false);
+      return localPaths; // All files are downloaded
+    } catch (error) {
+      console.log(error);
+      return [];
+    }
+  }, []);
+
+  const cacheAds = useCallback(async (urls: string[]) => {
+    try {
+      setAdLoading(true);
+      console.log("downloagin ads");
+
+      // Create an array of download promises
+      const downloadPromises = urls.map(async (url) => {
+        const fileUri = `${FileSystem.documentDirectory}${url
+          .split("/")
+          .pop()}`;
+        const fileInfo = await FileSystem.getInfoAsync(fileUri);
+        if (fileInfo.exists) {
+          return { uri: fileUri };
+        }
+        return FileSystem.downloadAsync(url, fileUri);
+      });
+
+      // Wait for all promises to resolve
+      const results = await Promise.all(downloadPromises);
+
+      console.log("downloading ads successfull");
+      // Get the local paths after download
+      const localPaths = results.map((url) => url.uri);
+      setAdLoading(false);
+      return localPaths; // All files are downloaded
+    } catch (error) {
+      console.log(error);
+      return [];
+    }
+  }, []);
+
   const fetchAds = useCallback(async () => {
     if (adsFetchFromApi) return;
     console.log("fetching ads");
@@ -117,9 +186,11 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       console.log("ads fetch, cahing ads...");
 
       const cachedUrls = await cacheAds(mediaUrls);
+      console.log("cached file urls", cachedUrls);
 
       const adsWithCachedUris = ads.map((ad, index) => ({
         ...ad,
+        remoteUrl: ad.adUrl,
         adUrl: cachedUrls[index],
       }));
       setAds(adsWithCachedUris);
@@ -127,14 +198,22 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       setScreenConfig(data.config);
       setSafeToPlay(true);
       setAdsFetchFromApi(false);
+      alreadyUsingLocal.current = false;
     } catch (error: any) {
-      if (loaded && item?.ads && item?.screen) {
+      if (
+        localLoaded.current &&
+        localItem.current &&
+        !alreadyUsingLocal.current
+      ) {
+        alreadyUsingLocal.current = true;
         console.log("fetch failed, using local");
 
-        setAds(item.ads as Ad[]);
-        setScreenConfig(item.screen as ScreenConfig);
+        setAds(localItem.current.ads as Ad[]);
+        setScreenConfig(localItem.current.screen as ScreenConfig);
         setrequest(true);
         setSafeToPlay(true);
+      } else {
+        console.log("nothing in local, waiting");
       }
       console.log(
         error.response?.data?.message || error.message,
@@ -146,70 +225,6 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       }, 10000);
     }
   }, [deviceCode, loaded]);
-
-  const cacheAdsInBackground = useCallback(
-    async (urls: string[]) => {
-      try {
-        // Create an array of download promises
-        const downloadPromises = urls.map((url) => {
-          const fileUri = `${FileSystem.documentDirectory}${url
-            .split("/")
-            .pop()}`;
-          return FileSystem.downloadAsync(url, fileUri);
-        });
-
-        // Wait for all promises to resolve
-        const results = await Promise.all(downloadPromises);
-
-        // Get the local paths after download
-        const localPaths = results.map((url) => url.uri);
-        return localPaths; // All files are downloaded
-      } catch (error) {
-        console.log("Error during cahing", error);
-        await cacheAdsInBackground(urls);
-        return [];
-      }
-    },
-    [fetchAds]
-  );
-
-  const cacheAds = useCallback(
-    async (urls: string[]) => {
-      try {
-        setAdLoading(true);
-        console.log("downloagin ads");
-
-        // Create an array of download promises
-        const downloadPromises = urls.map(async (url) => {
-          const fileName = url.split("/").pop() as string;
-          const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-          const info = await FileSystem.getInfoAsync(fileUri);
-          if (info.exists) {
-            console.log("found exisint media, deleting...");
-            await FileSystem.deleteAsync(fileUri);
-            console.log("exisint media, deleted...");
-          }
-          console.log("downloading", url);
-
-          return FileSystem.downloadAsync(url, fileUri);
-        });
-
-        // Wait for all promises to resolve
-        const results = await Promise.all(downloadPromises);
-
-        console.log("downloading ads successfull");
-        // Get the local paths after download
-        const localPaths = results.map((url) => url.uri);
-        setAdLoading(false);
-        return localPaths; // All files are downloaded
-      } catch (error: any) {
-        console.log("Error downloading ads", error.nessage);
-        fetchAds();
-        return [];
-      }
-    },
-    [fetchAds]
-  );
 
   useEffect(() => {
     if (deviceCode) {
@@ -252,6 +267,9 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     }
   }, [request]);
 
+  localLoaded.current = loaded;
+  localItem.current = item;
+
   const contextValues = {
     ...filteredAds,
     screenConfig,
@@ -260,6 +278,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     request,
     deviceCode,
     safeToPlay,
+    adsBackgroundLoading,
   };
 
   return (

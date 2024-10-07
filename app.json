@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "cjtronics-device-expo",
-    "slug": "cjtronics-device-expo",
+    "name": "Cjtronics By Folham",
+    "slug": "Cjtronics By Folham",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/images/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": true

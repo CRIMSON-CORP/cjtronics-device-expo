@@ -23,12 +23,20 @@ import WebView from "react-native-webview";
 const { width, height } = Dimensions.get("screen");
 
 const player = () => {
-  const { adGroups, adsLoading, widgets, sendLog, screenConfig, safeToPlay } =
-    useAdContext();
+  const {
+    adGroups,
+    adsLoading,
+    widgets,
+    sendLog,
+    screenConfig,
+    safeToPlay,
+    adsBackgroundLoading,
+  } = useAdContext();
 
   return (
     <View className="flex-1 bg-black">
       {adsLoading && <Loader />}
+      {adsBackgroundLoading && <BackgroundLoader />}
       {safeToPlay && adGroups.length > 0 && (
         <Player
           adGroups={adGroups}
@@ -48,6 +56,16 @@ function Loader() {
       size="large"
       color="#ffffff"
       className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+    />
+  );
+}
+
+function BackgroundLoader() {
+  return (
+    <ActivityIndicator
+      size="small"
+      color="#ffffff"
+      className="absolute right-5 bottom-5 opacity-60 z-20"
     />
   );
 }
@@ -137,7 +155,6 @@ function Screen({ children, screenLayoutRef }: ScreenProps) {
       aspectRatio: layoutConfig.landscape ? 16 / 9 : 9 / 16, // Set aspect ratio
       width: layoutConfig.landscape ? "100%" : undefined, // Set width based on layoutConfig
       height: layoutConfig.landscape ? "auto" : undefined, // Set height based on layoutConfig
-      background: "#c2410c",
     };
 
     if (layoutConfig.split) {
@@ -181,20 +198,38 @@ function adCanPlayToday(ad: Ad) {
 
 function adCanPlayNow(ad: Ad) {
   if (!ad) return false;
-  const startTime = new Date(ad.adConfiguration.startTime).getTime();
-  const endTime = new Date(ad.adConfiguration.endTime).getTime();
-  const now = new Date().getTime();
-  return startTime <= now && now <= endTime;
+
+  const now = new Date();
+  const startTime = new Date(ad.adConfiguration.startTime);
+  const endTime = new Date(ad.adConfiguration.endTime);
+
+  // Check if current date is within ad's overall time window
+  if (now < startTime || now > endTime) return false;
+
+  // Extract daily time window (same time range for every day)
+  const [dailyStartHour, dailyStartMinute] = [
+    startTime.getHours(),
+    startTime.getMinutes(),
+  ];
+  const [dailyEndHour, dailyEndMinute] = [
+    endTime.getHours(),
+    endTime.getMinutes(),
+  ];
+
+  const [currentHour, currentMinute] = [now.getHours(), now.getMinutes()];
+
+  const isAfterDailyStart =
+    currentHour > dailyStartHour ||
+    (currentHour === dailyStartHour && currentMinute >= dailyStartMinute);
+
+  const isBeforeDailyEnd =
+    currentHour < dailyEndHour ||
+    (currentHour === dailyEndHour && currentMinute <= dailyEndMinute);
+
+  return isAfterDailyStart && isBeforeDailyEnd;
 }
 
-function PlayerView({
-  ads,
-  screenView,
-  onComplete,
-  sendLog,
-  view,
-  index,
-}: ViewProps) {
+function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
   const sequence = ads;
 
   const [currentAdIndex, setCurrentAdIndex] = useState(() => {
@@ -202,31 +237,35 @@ function PlayerView({
       ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
       : 0;
   });
+
   const [anyAdCanPlay, setAnyAdCanPlay] = useState(false);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+
     if (currentAdIndex < sequence.length) {
       const adToPlay = sequence[currentAdIndex];
-      const adDuration = adToPlay.adConfiguration.duration * 1000; // Convert to milliseconds
+      const adDuration = adToPlay.adConfiguration.duration * 1000; // Convert to ms
 
-      if (!adCanPlayToday(adToPlay) && !adCanPlayNow(adToPlay)) {
+      if (adCanPlayToday(adToPlay) && adCanPlayNow(adToPlay)) {
+        // Log when an ad is played
         sendLog?.({
           accountId: adToPlay.adAccountId,
           adId: adToPlay.adId,
           campaignId: adToPlay.campaignId,
-          messageType: "skipped",
+          messageType: "play",
           uploadRef: adToPlay.uploadRef,
         });
-      } else {
+
+        // Set a timer to play the next ad
         timer = setTimeout(() => {
           setCurrentAdIndex((prevIndex) => {
-            // find the next ad that can be played
             let nextIndex = prevIndex + 1;
+
             while (
               nextIndex < sequence.length &&
-              !adCanPlayToday(sequence[nextIndex]) &&
-              !adCanPlayNow(sequence[nextIndex])
+              (!adCanPlayToday(sequence[nextIndex]) ||
+                !adCanPlayNow(sequence[nextIndex]))
             ) {
               sendLog?.({
                 accountId: sequence[nextIndex].adAccountId,
@@ -238,24 +277,31 @@ function PlayerView({
 
               nextIndex++;
               if (nextIndex >= sequence.length) {
-                nextIndex = 0;
+                nextIndex = 0; // Loop back to the start if end is reached
               }
             }
             return nextIndex;
           });
         }, adDuration);
+      } else {
+        // Log skipped ad if it's not playable today or now
+        sendLog?.({
+          accountId: adToPlay.adAccountId,
+          adId: adToPlay.adId,
+          campaignId: adToPlay.campaignId,
+          messageType: "skipped",
+          uploadRef: adToPlay.uploadRef,
+        });
+
+        // Immediately go to next ad if the current one can't play
+        setCurrentAdIndex((prevIndex) => (prevIndex + 1) % sequence.length);
       }
 
       return () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-      }; // Clear the timer when component unmounts or index changes
+        if (timer) clearTimeout(timer);
+      };
     } else {
-      onComplete();
-      // setTimeout(() => {
-      //   setCurrentAdIndex(0);
-      // }, 1000 * 20);
+      onComplete(); // Call onComplete when no more ads can play
     }
   }, [currentAdIndex, onComplete, sendLog, sequence]);
 
@@ -286,58 +332,57 @@ function PlayerView({
           transform: [{ translateX: -currentAdIndex * width }],
         }}
       >
-        {sequence.map((file, index) => {
-          return (
-            <View
-              key={index}
-              className="w-full h-full absolute"
-              style={{ transform: [{ translateX: index * width }] }}
-            >
-              {file.adType === "image" ? (
-                <Image
+        {sequence.map((file, index) => (
+          <View
+            key={index}
+            className="w-full h-full absolute"
+            style={{ transform: [{ translateX: index * width }] }}
+          >
+            {file.adType === "image" ? (
+              <Image
+                source={{
+                  uri: file.adUrl,
+                }}
+                alt={file.uploadName}
+                key={currentAdIndex}
+                resizeMode="contain"
+                style={[
+                  styles.media,
+                  {
+                    opacity: index === currentAdIndex ? 1 : 0,
+                  },
+                ]}
+              />
+            ) : file.adType === "video" ? (
+              <VideoWrapper
+                index={index}
+                currentAdIndex={currentAdIndex}
+                uri={file.adUrl}
+                remoteUrl={file.remoteUrl}
+              />
+            ) : file.adType === "iframe" ? (
+              <View
+                style={{
+                  height,
+                  width,
+                  opacity: index === currentAdIndex ? 1 : 0,
+                }}
+              >
+                <WebView
+                  javaScriptEnabled
+                  style={{
+                    width: "97%",
+                    backgroundColor: "#000",
+                  }}
                   source={{
                     uri: file.adUrl,
                   }}
-                  alt={file.uploadName}
-                  key={currentAdIndex}
-                  resizeMode="contain"
-                  style={[
-                    styles.media,
-                    {
-                      opacity: index === currentAdIndex ? 1 : 0,
-                    },
-                  ]}
+                  allowFileAccess
                 />
-              ) : file.adType === "video" ? (
-                <VideoWrapper
-                  index={index}
-                  currentAdIndex={currentAdIndex}
-                  uri={file.adUrl}
-                />
-              ) : file.adType === "iframe" ? (
-                <View
-                  style={{
-                    height,
-                    width,
-                    opacity: index === currentAdIndex ? 1 : 0,
-                  }}
-                >
-                  <WebView
-                    javaScriptEnabled
-                    style={{
-                      width: "97%",
-                      backgroundColor: "#000",
-                    }}
-                    source={{
-                      uri: file.adUrl,
-                    }}
-                    allowFileAccess
-                  />
-                </View>
-              ) : null}
-            </View>
-          );
-        })}
+              </View>
+            ) : null}
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -348,23 +393,35 @@ const styles = StyleSheet.create({
     width,
     height: "100%",
   },
+  backgroundLoader: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+  },
 });
 
 interface VideoWrapperProps {
   index: number;
   currentAdIndex: number;
   uri: string;
+  remoteUrl?: string;
 }
 
-function VideoWrapper({ index, currentAdIndex, uri }: VideoWrapperProps) {
+function VideoWrapper({
+  index,
+  currentAdIndex,
+  uri,
+  remoteUrl,
+}: VideoWrapperProps) {
   const videoRef = useRef<Video | null>(null);
+  const [videoUrl, setVideoUrl] = useState(uri);
 
   useEffect(() => {
     if (index === currentAdIndex) {
       videoRef.current?.playAsync();
       console.log("Playing video at ", index);
     }
-  }, [index, currentAdIndex]);
+  }, [videoUrl, index, currentAdIndex]);
 
   return (
     <Video
@@ -376,13 +433,20 @@ function VideoWrapper({ index, currentAdIndex, uri }: VideoWrapperProps) {
         },
       ]}
       source={{
-        uri,
+        uri: videoUrl,
       }}
       useNativeControls
       resizeMode={ResizeMode.CONTAIN}
       isLooping
       isMuted
-      onError={(e) => console.log(e, " video error ", index)}
+      shouldPlay={index === currentAdIndex}
+      onError={(e) => {
+        console.log(e, " video error ", index);
+        if (remoteUrl) {
+          setVideoUrl(remoteUrl);
+          console.log("video url set to remote url");
+        }
+      }}
     />
   );
 }

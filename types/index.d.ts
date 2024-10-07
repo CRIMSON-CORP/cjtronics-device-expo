@@ -18,6 +18,7 @@ interface Ad {
   campaignView: number;
   uploadName: string;
   uploadRef: string;
+  remoteUrl?: string;
 }
 
 interface ScreenConfig {

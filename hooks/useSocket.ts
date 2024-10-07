@@ -25,6 +25,7 @@ function useSocket({
 
         newSocket.onopen = () => {
           setSocket(newSocket);
+          console.log("Socket connected");
         };
         newSocket.onclose = () => {
           if (timeout) {
