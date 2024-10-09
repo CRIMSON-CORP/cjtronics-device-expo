@@ -265,7 +265,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (request) {
-      router.push("/player");
+      router.replace("/player");
     }
   }, [request]);
 
