@@ -233,6 +233,17 @@ function adCanPlayNow(ad: Ad) {
   return isAfterDailyStart && isBeforeDailyEnd;
 }
 
+function adNotActive(ad: Ad) {
+  if (!ad) return false;
+
+  const now = new Date();
+  const startTime = new Date(ad.adConfiguration.startTime);
+  const endTime = new Date(ad.adConfiguration.endTime);
+
+  // Check if current date is within ad's overall time window
+  if (now < startTime || now > endTime) return false;
+}
+
 function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
   const sequence = ads;
 
@@ -248,9 +259,17 @@ function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     if (currentAdIndex < sequence.length) {
+      if (currentAdIndex === -1) return;
       const adToPlay = sequence[currentAdIndex];
       const adDuration = adToPlay.adConfiguration.duration * 1000; // Convert to ms
 
+      // Skip inactive ads and move to the next ad without logging
+      if (adNotActive(adToPlay)) {
+        setCurrentAdIndex((prevIndex) => (prevIndex + 1) % sequence.length);
+        return; // Exit early
+      }
+
+      // Check if the ad can play today and now
       if (adCanPlayToday(adToPlay) && adCanPlayNow(adToPlay)) {
         // Log when an ad is played
         sendLog?.({
