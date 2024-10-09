@@ -121,6 +121,7 @@ function Player({ screenConfig, adGroups, widgets, sendLog }: PlayerProps) {
               onComplete={onComplete}
               sendLog={sendLog}
               index={index}
+              screenConfig={screenConfig}
             />
           ))}
         </Screen>
@@ -183,6 +184,7 @@ interface ViewProps {
   sendLog?: (params: SendLogParams) => void;
   view: "ads" | "widget";
   index: number;
+  screenConfig?: ScreenConfig;
 }
 
 const days: string[] = [
@@ -260,7 +262,14 @@ function adNotActive(ad: Ad) {
   if (now < startTime || now > endTime) return false;
 }
 
-function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
+function PlayerView({
+  ads,
+  screenView,
+  onComplete,
+  sendLog,
+  view,
+  screenConfig,
+}: ViewProps) {
   const sequence = ads;
 
   const [currentAdIndex, setCurrentAdIndex] = useState(() => {
@@ -410,7 +419,9 @@ function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
                     backgroundColor: "#000",
                   }}
                   source={{
-                    uri: file.adUrl,
+                    uri: `${file.adUrl}?${new URLSearchParams({
+                      location: screenConfig?.city || "",
+                    }).toString()}`,
                   }}
                   allowFileAccess
                 />
