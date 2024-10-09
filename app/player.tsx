@@ -168,7 +168,11 @@ function Screen({ children, screenLayoutRef }: ScreenProps) {
     return screenStyle;
   }, [layoutConfig]);
 
-  return <View style={screenStyle}>{children}</View>;
+  return (
+    <View style={screenStyle} className="mx-auto">
+      {children}
+    </View>
+  );
 }
 
 interface ViewProps {
@@ -360,13 +364,14 @@ function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
                 style={{
                   height,
                   width,
+                  transform: [{ translateX: width > height ? -10 : 0 }],
                   opacity: index === currentAdIndex ? 1 : 0,
                 }}
               >
                 <WebView
                   javaScriptEnabled
                   style={{
-                    width: "97%",
+                    width,
                     backgroundColor: "#000",
                   }}
                   source={{
@@ -385,8 +390,10 @@ function PlayerView({ ads, screenView, onComplete, sendLog, view }: ViewProps) {
 
 const styles = StyleSheet.create({
   media: {
-    width,
+    width: "100%",
+    maxWidth: width,
     height: "100%",
+    maxHeight: height,
   },
   backgroundLoader: {
     position: "absolute",
