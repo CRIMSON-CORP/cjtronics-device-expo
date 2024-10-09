@@ -106,30 +106,31 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const cacheAdsInBackground = useCallback(async (urls: string[]) => {
     try {
       setAdsBackgroundLoading(true);
-      console.log("downloagin ads in background");
+      console.log("downloading ads in background");
 
-      // Create an array of download promises
-      const downloadPromises = urls.map(async (url) => {
+      const localPaths = [];
+
+      // Download each URL sequentially
+      for (const url of urls) {
         const fileUri = `${FileSystem.documentDirectory}${url
           .split("/")
           .pop()}`;
         const fileInfo = await FileSystem.getInfoAsync(fileUri);
+
         if (fileInfo.exists) {
-          return { uri: fileUri };
+          localPaths.push(fileUri);
+        } else {
+          const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
+          localPaths.push(downloadedFile.uri);
         }
-        return FileSystem.downloadAsync(url, fileUri);
-      });
+      }
 
-      // Wait for all promises to resolve
-      const results = await Promise.all(downloadPromises);
-
-      console.log("downloading ads in background successfull");
-      // Get the local paths after download
-      const localPaths = results.map((url) => url.uri);
+      console.log("downloading ads in background successful");
       setAdsBackgroundLoading(false);
-      return localPaths; // All files are downloaded
+      return localPaths; // All files are downloaded sequentially
     } catch (error) {
       console.log(error);
+      setAdsBackgroundLoading(false);
       return [];
     }
   }, []);
@@ -137,30 +138,31 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const cacheAds = useCallback(async (urls: string[]) => {
     try {
       setAdLoading(true);
-      console.log("downloagin ads");
+      console.log("downloading ads");
 
-      // Create an array of download promises
-      const downloadPromises = urls.map(async (url) => {
+      const localPaths = [];
+
+      // Download each URL sequentially
+      for (const url of urls) {
         const fileUri = `${FileSystem.documentDirectory}${url
           .split("/")
           .pop()}`;
         const fileInfo = await FileSystem.getInfoAsync(fileUri);
+
         if (fileInfo.exists) {
-          return { uri: fileUri };
+          localPaths.push(fileUri);
+        } else {
+          const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
+          localPaths.push(downloadedFile.uri);
         }
-        return FileSystem.downloadAsync(url, fileUri);
-      });
+      }
 
-      // Wait for all promises to resolve
-      const results = await Promise.all(downloadPromises);
-
-      console.log("downloading ads successfull");
-      // Get the local paths after download
-      const localPaths = results.map((url) => url.uri);
+      console.log("downloading ads successful");
       setAdLoading(false);
-      return localPaths; // All files are downloaded
+      return localPaths; // All files are downloaded sequentially
     } catch (error) {
       console.log(error);
+      setAdLoading(false);
       return [];
     }
   }, []);
