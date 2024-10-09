@@ -1,5 +1,6 @@
 import { useAdContext } from "@/hooks/useAdContext";
-import React from "react";
+import { useRouter } from "expo-router";
+import React, { useEffect } from "react";
 import {
   Alert,
   Image,
@@ -10,7 +11,14 @@ import {
 } from "react-native";
 
 export default function index() {
-  const { deviceCode } = useAdContext();
+  const { deviceCode, safeToPlay } = useAdContext();
+  const router = useRouter();
+  useEffect(() => {
+    if (safeToPlay) {
+      router.replace("/player");
+    }
+  }, []);
+
   return (
     <View className="flex-1 flex flex-col justify-center gap-[5vh] items-center p-10 text-center bg-black">
       <View className="bg-white p-[2vh] rounded-[3vh]">
