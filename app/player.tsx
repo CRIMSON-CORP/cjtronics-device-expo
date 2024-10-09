@@ -222,15 +222,31 @@ function adCanPlayNow(ad: Ad) {
 
   const [currentHour, currentMinute] = [now.getHours(), now.getMinutes()];
 
-  const isAfterDailyStart =
-    currentHour > dailyStartHour ||
-    (currentHour === dailyStartHour && currentMinute >= dailyStartMinute);
+  // Handle the "overnight" scenario
+  if (
+    dailyEndHour < dailyStartHour ||
+    (dailyEndHour === dailyStartHour && dailyEndMinute < dailyStartMinute)
+  ) {
+    // Ad plays from start time until midnight, and from midnight until end time
+    const isAfterStartOrBeforeEnd =
+      currentHour > dailyStartHour ||
+      (currentHour === dailyStartHour && currentMinute >= dailyStartMinute) ||
+      currentHour < dailyEndHour ||
+      (currentHour === dailyEndHour && currentMinute <= dailyEndMinute);
 
-  const isBeforeDailyEnd =
-    currentHour < dailyEndHour ||
-    (currentHour === dailyEndHour && currentMinute <= dailyEndMinute);
+    return isAfterStartOrBeforeEnd;
+  } else {
+    // Regular same-day time window
+    const isAfterDailyStart =
+      currentHour > dailyStartHour ||
+      (currentHour === dailyStartHour && currentMinute >= dailyStartMinute);
 
-  return isAfterDailyStart && isBeforeDailyEnd;
+    const isBeforeDailyEnd =
+      currentHour < dailyEndHour ||
+      (currentHour === dailyEndHour && currentMinute <= dailyEndMinute);
+
+    return isAfterDailyStart && isBeforeDailyEnd;
+  }
 }
 
 function adNotActive(ad: Ad) {
