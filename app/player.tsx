@@ -477,7 +477,7 @@ function VideoWrapper({
       source={{
         uri: videoUrl,
       }}
-      resizeMode={ResizeMode.CONTAIN}
+      resizeMode={ResizeMode.STRETCH}
       isLooping
       isMuted
       shouldPlay
