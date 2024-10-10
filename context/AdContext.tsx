@@ -163,7 +163,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.log(error);
       setAdLoading(false);
-      return [];
+      return await cacheAds(urls);
     }
   }, []);
 
