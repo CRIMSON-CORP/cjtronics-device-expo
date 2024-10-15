@@ -76,16 +76,20 @@ function useSocket({
       uploadRef,
     }: SendLogParams) => {
       if (socket && socket.readyState === WebSocket.OPEN) {
+        const currentTime = new Date();
+
         socket.send(
           JSON.stringify({
             event: "device-log",
             logs: {
-              deviceId: "90J9R6",
+              deviceId: deviceCode,
               adId,
               accountId,
               campaignId,
               messageType,
-              loggedOn: new Date().toISOString(),
+              loggedOn: new Date(
+                currentTime.getTime() - currentTime.getTimezoneOffset() * 60000
+              ).toISOString(),
               uploadRef,
             },
           })
@@ -94,7 +98,7 @@ function useSocket({
         console.log("log cound not be sent as socket connection is lost");
       }
     },
-    [socket]
+    [socket, deviceCode]
   );
 
   return {
