@@ -271,7 +271,6 @@ function PlayerView({
   screenConfig,
 }: ViewProps) {
   const sequence = ads;
-
   const [currentAdIndex, setCurrentAdIndex] = useState(() => {
     return view === "ads"
       ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
@@ -280,23 +279,43 @@ function PlayerView({
 
   const [anyAdCanPlay, setAnyAdCanPlay] = useState(false);
 
+  const moveToNextAd = useCallback(() => {
+    setCurrentAdIndex((prevIndex) => {
+      let nextIndex = prevIndex + 1;
+
+      while (nextIndex < sequence.length) {
+        const ad = sequence[nextIndex];
+        if (adCanPlayToday(ad) && adCanPlayNow(ad)) {
+          return nextIndex;
+        }
+        // Log skipped ads
+        if (!adNotActive(ad)) {
+          sendLog?.({
+            accountId: ad.adAccountId,
+            adId: ad.adId,
+            campaignId: ad.campaignId,
+            messageType: "skipped",
+            uploadRef: ad.uploadRef,
+          });
+        }
+        nextIndex++;
+      }
+      return -1; // No more ads can play
+    });
+  }, [sequence, sendLog]);
+
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    if (currentAdIndex < sequence.length) {
-      if (currentAdIndex === -1) return;
+    if (currentAdIndex >= 0 && currentAdIndex < sequence.length) {
       const adToPlay = sequence[currentAdIndex];
-      const adDuration = adToPlay.adConfiguration.duration * 1000; // Convert to ms
 
-      // Skip inactive ads and move to the next ad without logging
       if (adNotActive(adToPlay)) {
-        setCurrentAdIndex((prevIndex) => (prevIndex + 1) % sequence.length);
-        return; // Exit early
+        moveToNextAd();
+        return;
       }
 
-      // Check if the ad can play today and now
       if (adCanPlayToday(adToPlay) && adCanPlayNow(adToPlay)) {
-        // Log when an ad is played
         sendLog?.({
           accountId: adToPlay.adAccountId,
           adId: adToPlay.adId,
@@ -305,59 +324,24 @@ function PlayerView({
           uploadRef: adToPlay.uploadRef,
         });
 
-        // Set a timer to play the next ad
-        timer = setTimeout(() => {
-          setCurrentAdIndex((prevIndex) => {
-            let nextIndex = prevIndex + 1;
-
-            while (
-              nextIndex < sequence.length &&
-              (!adCanPlayToday(sequence[nextIndex]) ||
-                !adCanPlayNow(sequence[nextIndex]))
-            ) {
-              sendLog?.({
-                accountId: sequence[nextIndex].adAccountId,
-                adId: sequence[nextIndex].adId,
-                campaignId: sequence[nextIndex].campaignId,
-                messageType: "skipped",
-                uploadRef: sequence[nextIndex].uploadRef,
-              });
-
-              nextIndex++;
-              if (nextIndex >= sequence.length) {
-                nextIndex = 0; // Loop back to the start if end is reached
-              }
-            }
-            return nextIndex;
-          });
-        }, adDuration);
+        const adDuration = adToPlay.adConfiguration.duration * 1000;
+        timer = setTimeout(moveToNextAd, adDuration);
       } else {
-        // Log skipped ad if it's not playable today or now
-        sendLog?.({
-          accountId: adToPlay.adAccountId,
-          adId: adToPlay.adId,
-          campaignId: adToPlay.campaignId,
-          messageType: "skipped",
-          uploadRef: adToPlay.uploadRef,
-        });
-
-        // Immediately go to next ad if the current one can't play
-        setCurrentAdIndex((prevIndex) => (prevIndex + 1) % sequence.length);
+        moveToNextAd();
       }
-
-      return () => {
-        if (timer) clearTimeout(timer);
-      };
     } else {
-      onComplete(); // Call onComplete when no more ads can play
+      onComplete(); // Call onComplete when no ads can play
     }
-  }, [currentAdIndex, onComplete, sendLog, sequence]);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [currentAdIndex, moveToNextAd, onComplete, sendLog, sequence]);
 
   useEffect(() => {
     setCurrentAdIndex(() => {
       return view === "ads"
-        ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) ||
-            0
+        ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
         : 0;
     });
   }, [screenView, sequence, view]);
@@ -369,7 +353,12 @@ function PlayerView({
   }, [sequence]);
 
   if (!anyAdCanPlay) {
-    return null;
+    // If no ads can play but widgets exist, switch to widgets
+    if (view === "ads" && screenView !== "widgets") {
+      onComplete();
+      return null;
+    }
+    return null; // Render nothing if no ads or widgets
   }
 
   return (
@@ -388,9 +377,7 @@ function PlayerView({
           >
             {file.adType === "image" && index === currentAdIndex ? (
               <Image
-                source={{
-                  uri: file.adUrl,
-                }}
+                source={{ uri: file.adUrl }}
                 alt={file.uploadName}
                 key={currentAdIndex}
                 resizeMode="contain"
