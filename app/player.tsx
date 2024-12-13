@@ -37,7 +37,7 @@ const player = () => {
     <View className="flex-1 bg-black">
       {adsLoading && <Loader />}
       {adsBackgroundLoading && <BackgroundLoader />}
-      {safeToPlay && adGroups.length > 0 && (
+      {safeToPlay && (
         <Player
           adGroups={adGroups}
           widgets={widgets}
@@ -50,6 +50,7 @@ const player = () => {
 };
 
 export default player;
+
 function Loader() {
   return (
     <ActivityIndicator
@@ -81,6 +82,11 @@ function Player({ screenConfig, adGroups, widgets, sendLog }: PlayerProps) {
   const [screenView, setScreenView] = useState("player");
   const [completedScreen, setCompletedScreen] = useState<boolean[]>([]);
 
+  // Check if there are any playable ads or widgets
+  const hasPlayableContent = useMemo(() => {
+    return adGroups.length > 0 || widgets.length > 0;
+  }, [adGroups, widgets]);
+
   const onComplete = useCallback(() => {
     setCompletedScreen((prev) => [...prev, true]);
   }, []);
@@ -106,6 +112,11 @@ function Player({ screenConfig, adGroups, widgets, sendLog }: PlayerProps) {
   useEffect(() => {
     setCompletedScreen([]);
   }, [screenView]);
+
+  // If no playable content, do not render anything
+  if (!hasPlayableContent) {
+    return null;
+  }
 
   return (
     <View className="flex-1 overflow-hidden p-0 bg-black">
@@ -149,19 +160,18 @@ function Screen({ children, screenLayoutRef }: ScreenProps) {
 
   const screenStyle = useMemo(() => {
     const screenStyle: StyleProp<ViewStyle> & CSSProperties = {
-      flexGrow: 1, // Makes the container take up the full available space
+      flexGrow: 1,
       overflow: "hidden",
-      flexDirection: layoutConfig.horizontal ? "row" : "column", // Set direction based on layoutConfig
-      flexWrap: "wrap", // Allows items to wrap to the next line if needed
-      aspectRatio: layoutConfig.landscape ? 16 / 9 : 9 / 16, // Set aspect ratio
-      width: layoutConfig.landscape ? "100%" : undefined, // Set width based on layoutConfig
-      height: layoutConfig.landscape ? "auto" : undefined, // Set height based on layoutConfig
+      flexDirection: layoutConfig.horizontal ? "row" : "column",
+      flexWrap: "wrap",
+      aspectRatio: layoutConfig.landscape ? 16 / 9 : 9 / 16,
+      width: layoutConfig.landscape ? "100%" : undefined,
+      height: layoutConfig.landscape ? "auto" : undefined,
     };
 
     if (layoutConfig.split) {
       const splits = layoutConfig.split.split(",").map((split) => +split / 100);
 
-      // Add flex values based on splits
       splits.forEach((split) => {
         screenStyle.flex = split;
       });
@@ -174,17 +184,6 @@ function Screen({ children, screenLayoutRef }: ScreenProps) {
       {children}
     </View>
   );
-}
-
-interface ViewProps {
-  ads: Ad[];
-  onComplete: () => void;
-  screenView?: string;
-  setScreenView?: React.Dispatch<React.SetStateAction<string>>;
-  sendLog?: (params: SendLogParams) => void;
-  view: "ads" | "widget";
-  index: number;
-  screenConfig?: ScreenConfig;
 }
 
 const days: string[] = [
@@ -212,7 +211,6 @@ function adCanPlayNow(ad: Ad) {
   // Check if current date is within ad's overall time window
   if (now < startTime || now > endTime) return false;
 
-  // Extract daily time window (same time range for every day)
   const [dailyStartHour, dailyStartMinute] = [
     startTime.getHours(),
     startTime.getMinutes(),
@@ -229,7 +227,6 @@ function adCanPlayNow(ad: Ad) {
     dailyEndHour < dailyStartHour ||
     (dailyEndHour === dailyStartHour && dailyEndMinute < dailyStartMinute)
   ) {
-    // Ad plays from start time until midnight, and from midnight until end time
     const isAfterStartOrBeforeEnd =
       currentHour > dailyStartHour ||
       (currentHour === dailyStartHour && currentMinute >= dailyStartMinute) ||
@@ -262,6 +259,17 @@ function adNotActive(ad: Ad) {
   if (now < startTime || now > endTime) return false;
 }
 
+interface ViewProps {
+  ads: Ad[];
+  onComplete: () => void;
+  screenView?: string;
+  setScreenView?: React.Dispatch<React.SetStateAction<string>>;
+  sendLog?: (params: SendLogParams) => void;
+  view: "ads" | "widget";
+  index: number;
+  screenConfig?: ScreenConfig;
+}
+
 function PlayerView({
   ads,
   screenView,
@@ -278,6 +286,7 @@ function PlayerView({
   });
 
   const [anyAdCanPlay, setAnyAdCanPlay] = useState(false);
+  const isSingleWidget = view === "widget" && sequence.length === 1;
 
   const moveToNextAd = useCallback(() => {
     setCurrentAdIndex((prevIndex) => {
@@ -352,15 +361,52 @@ function PlayerView({
     );
   }, [sequence]);
 
+  // If no ads can play, do not render anything
   if (!anyAdCanPlay) {
-    // If no ads can play but widgets exist, switch to widgets
-    if (view === "ads" && screenView !== "widgets") {
-      onComplete();
-      return null;
-    }
-    return null; // Render nothing if no ads or widgets
+    return null;
   }
 
+  // If it's a single widget, render without sliding
+  if (isSingleWidget) {
+    const file = sequence[0];
+    return (
+      <View className="flex-1 w-full h-full">
+        {file.adType === "image" ? (
+          <Image
+            source={{ uri: file.adUrl }}
+            alt={file.uploadName}
+            resizeMode="contain"
+            style={styles.media}
+          />
+        ) : file.adType === "video" ? (
+          <VideoWrapper
+            index={0}
+            currentAdIndex={0}
+            uri={file.adUrl}
+            remoteUrl={file.remoteUrl}
+          />
+        ) : file.adType === "iframe" ? (
+          <View style={{ height, width }}>
+            <WebView
+              javaScriptEnabled
+              style={{
+                width,
+                backgroundColor: "#000",
+              }}
+              source={{
+                uri: `${file.adUrl}?${new URLSearchParams({
+                  location: screenConfig?.city || "",
+                }).toString()}`,
+              }}
+              allowFileAccess
+            />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  // Existing sliding implementation for multiple ads/widgets
   return (
     <View className="flex-1 w-full h-full">
       <View
@@ -420,20 +466,6 @@ function PlayerView({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  media: {
-    width: "100%",
-    maxWidth: width,
-    height: "100%",
-    maxHeight: height,
-  },
-  backgroundLoader: {
-    position: "absolute",
-    right: 16,
-    bottom: 16,
-  },
-});
 
 interface VideoWrapperProps {
   index: number;
