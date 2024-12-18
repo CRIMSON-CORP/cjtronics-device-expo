@@ -350,7 +350,8 @@ function PlayerView({
   useEffect(() => {
     setCurrentAdIndex(() => {
       return view === "ads"
-        ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
+        ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) ||
+            0
         : 0;
     });
   }, [screenView, sequence, view]);
@@ -466,6 +467,20 @@ function PlayerView({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  media: {
+    width: "100%",
+    maxWidth: width,
+    height: "100%",
+    maxHeight: height,
+  },
+  backgroundLoader: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+  },
+});
 
 interface VideoWrapperProps {
   index: number;
