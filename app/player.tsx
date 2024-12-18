@@ -15,6 +15,7 @@ import {
   Image,
   StyleProp,
   StyleSheet,
+  Text,
   View,
   ViewStyle,
 } from "react-native";
@@ -113,9 +114,22 @@ function Player({ screenConfig, adGroups, widgets, sendLog }: PlayerProps) {
     setCompletedScreen([]);
   }, [screenView]);
 
-  // If no playable content, do not render anything
+  // If no playable content
   if (!hasPlayableContent) {
-    return null;
+    return (
+      <View className="flex-1 flex flex-col justify-center gap-[5vh] items-center p-10 text-center bg-black">
+        <View className="bg-white p-[2vh] rounded-[3vh]">
+          <Image
+            source={require("@/assets/images/logo.png")}
+            alt="Cjtronics"
+            className="w-72 h-12"
+          />
+        </View>
+        <Text className="text-[max(1.5vw,12px)] text-white text-center">
+          No Active Campaigns
+        </Text>
+      </View>
+    );
   }
 
   return (
@@ -339,7 +353,9 @@ function PlayerView({
         moveToNextAd();
       }
     } else {
-      onComplete(); // Call onComplete when no ads can play
+      if (!isSingleWidget) {
+        onComplete(); // Call onComplete when no ads can play
+      }
     }
 
     return () => {
@@ -371,39 +387,12 @@ function PlayerView({
   if (isSingleWidget) {
     const file = sequence[0];
     return (
-      <View className="flex-1 w-full h-full">
-        {file.adType === "image" ? (
-          <Image
-            source={{ uri: file.adUrl }}
-            alt={file.uploadName}
-            resizeMode="contain"
-            style={styles.media}
-          />
-        ) : file.adType === "video" ? (
-          <VideoWrapper
-            index={0}
-            currentAdIndex={0}
-            uri={file.adUrl}
-            remoteUrl={file.remoteUrl}
-          />
-        ) : file.adType === "iframe" ? (
-          <View style={{ height, width }}>
-            <WebView
-              javaScriptEnabled
-              style={{
-                width,
-                backgroundColor: "#000",
-              }}
-              source={{
-                uri: `${file.adUrl}?${new URLSearchParams({
-                  location: screenConfig?.city || "",
-                }).toString()}`,
-              }}
-              allowFileAccess
-            />
-          </View>
-        ) : null}
-      </View>
+      <PlayItem
+        index={0}
+        file={file}
+        screenConfig={screenConfig}
+        currentAdIndex={currentAdIndex}
+      />
     );
   }
 
@@ -417,53 +406,71 @@ function PlayerView({
         }}
       >
         {sequence.map((file, index) => (
-          <View
-            key={index}
-            className="w-full h-full absolute"
-            style={{ transform: [{ translateX: index * width }] }}
-          >
-            {file.adType === "image" && index === currentAdIndex ? (
-              <Image
-                source={{ uri: file.adUrl }}
-                alt={file.uploadName}
-                key={currentAdIndex}
-                resizeMode="contain"
-                style={styles.media}
-              />
-            ) : file.adType === "video" && index === currentAdIndex ? (
-              <VideoWrapper
-                index={index}
-                currentAdIndex={currentAdIndex}
-                uri={file.adUrl}
-                remoteUrl={file.remoteUrl}
-              />
-            ) : file.adType === "iframe" ? (
-              <View
-                style={{
-                  height,
-                  width,
-                  transform: [{ translateX: width > height ? -10 : 0 }],
-                  opacity: index === currentAdIndex ? 1 : 0,
-                }}
-              >
-                <WebView
-                  javaScriptEnabled
-                  style={{
-                    width,
-                    backgroundColor: "#000",
-                  }}
-                  source={{
-                    uri: `${file.adUrl}?${new URLSearchParams({
-                      location: screenConfig?.city || "",
-                    }).toString()}`,
-                  }}
-                  allowFileAccess
-                />
-              </View>
-            ) : null}
-          </View>
+          <PlayItem
+            file={file}
+            index={index}
+            key={file.uploadRef + index}
+            currentAdIndex={currentAdIndex}
+            screenConfig={screenConfig}
+          />
         ))}
       </View>
+    </View>
+  );
+}
+
+interface PlayItem {
+  file: Ad;
+  index: number;
+  currentAdIndex: number;
+  screenConfig: ScreenConfig | undefined;
+}
+
+function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
+  return (
+    <View
+      className="w-full h-full absolute"
+      style={{ transform: [{ translateX: index * width }] }}
+    >
+      {file.adType === "image" && index === currentAdIndex ? (
+        <Image
+          source={{ uri: file.adUrl }}
+          alt={file.uploadName}
+          key={currentAdIndex}
+          resizeMode="contain"
+          style={styles.media}
+        />
+      ) : file.adType === "video" && index === currentAdIndex ? (
+        <VideoWrapper
+          index={index}
+          currentAdIndex={currentAdIndex}
+          uri={file.adUrl}
+          remoteUrl={file.remoteUrl}
+        />
+      ) : file.adType === "iframe" ? (
+        <View
+          style={{
+            height,
+            width,
+            transform: [{ translateX: width > height ? -10 : 0 }],
+            opacity: index === currentAdIndex ? 1 : 0,
+          }}
+        >
+          <WebView
+            javaScriptEnabled
+            style={{
+              width,
+              backgroundColor: "#000",
+            }}
+            source={{
+              uri: `${file.adUrl}?${new URLSearchParams({
+                location: screenConfig?.city || "",
+              }).toString()}`,
+            }}
+            allowFileAccess
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
