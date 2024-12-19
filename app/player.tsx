@@ -222,7 +222,7 @@ function EmptyScreen() {
           className="w-72 h-12"
         />
       </View>
-      <Text className="text-[max(1.5vw,12px)] text-white text-center">
+      <Text className="text-[7vw] text-white text-center">
         No Active Campaigns
       </Text>
     </View>
@@ -498,8 +498,12 @@ function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
 
   // Check if there are any playable ads or widgets
   const emptyContent = useMemo(() => {
-    return adGroups.length == 0 && widgets.length == 0;
-  }, [adGroups, widgets]);
+    return (
+      !adGroups.some((adGroup) =>
+        adGroup.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
+      ) && widgets.length == 0
+    );
+  }, [adGroups, widgets, screenView]);
 
   const onWidgetComplete = () => {
     setScreenView("player");
