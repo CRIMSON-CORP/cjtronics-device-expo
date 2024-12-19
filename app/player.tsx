@@ -1,12 +1,10 @@
 import screenReferenceToConfig from "@/constants/screen-config-map";
 import { useAdContext } from "@/hooks/useAdContext";
-import { ResizeMode, Video } from "expo-av";
 import React, {
   CSSProperties,
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -20,6 +18,8 @@ import {
   ViewStyle,
 } from "react-native";
 import WebView from "react-native-webview";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { useEvent } from "expo";
 
 const { width, height } = Dimensions.get("screen");
 
@@ -80,86 +80,151 @@ interface PlayerProps {
 }
 
 function Player({ screenConfig, adGroups, widgets, sendLog }: PlayerProps) {
-  const [screenView, setScreenView] = useState("player");
-  const [completedScreen, setCompletedScreen] = useState<boolean[]>([]);
-
-  // Check if there are any playable ads or widgets
-  const hasPlayableContent = useMemo(() => {
-    return adGroups.length > 0 || widgets.length > 0;
-  }, [adGroups, widgets]);
-
-  const onComplete = useCallback(() => {
-    setCompletedScreen((prev) => [...prev, true]);
-  }, []);
-
-  const onWidgetComplete = () => {
-    setScreenView("player");
-    setCompletedScreen([]);
-  };
-
-  useEffect(() => {
-    if (adGroups.length !== 0 || widgets.length !== 0) {
-      if (completedScreen.length === adGroups.length && widgets.length > 0) {
-        setScreenView("widgets");
-      } else {
-        if (completedScreen.length === adGroups.length) {
-          setCompletedScreen([]);
-          setScreenView("player" + new Date().getTime());
-        }
-      }
-    }
-  }, [completedScreen, adGroups, widgets]);
-
-  useEffect(() => {
-    setCompletedScreen([]);
-  }, [screenView]);
+  const { screenView, emptyContent, onWidgetComplete, onPlayerComplete } =
+    useAds({
+      adGroups,
+      widgets,
+    });
 
   // If no playable content
-  if (!hasPlayableContent) {
+  if (emptyContent) {
+    return <EmptyScreen />;
+  }
+
+  if (screenView === "player") {
     return (
-      <View className="flex-1 flex flex-col justify-center gap-[5vh] items-center p-10 text-center bg-black">
-        <View className="bg-white p-[2vh] rounded-[3vh]">
-          <Image
-            source={require("@/assets/images/logo.png")}
-            alt="Cjtronics"
-            className="w-72 h-12"
-          />
-        </View>
-        <Text className="text-[max(1.5vw,12px)] text-white text-center">
-          No Active Campaigns
-        </Text>
-      </View>
+      <PlayerList
+        sendLog={sendLog}
+        adGroups={adGroups}
+        screenConfig={screenConfig}
+        onPlayerComplete={onPlayerComplete}
+      />
     );
   }
 
+  if (screenView === "widget") {
+    return (
+      <Widgets
+        widgets={widgets}
+        screenConfig={screenConfig}
+        onComplete={onWidgetComplete}
+      />
+    );
+  }
+
+  return null;
+}
+
+function PlayerList({
+  screenConfig,
+  adGroups,
+  sendLog,
+  onPlayerComplete,
+}: {
+  screenConfig: ScreenConfig;
+  adGroups: Ad[][];
+  sendLog?: (params: SendLogParams) => void;
+  onPlayerComplete: () => void;
+}) {
+  const [adListComplete, setAdListComplete] = useState(0);
+  const onComplete = useCallback(() => {
+    setAdListComplete((prev) => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    if (adListComplete === adGroups.length) {
+      onPlayerComplete();
+    }
+  }, [adListComplete]);
+
   return (
-    <View className="flex-1 overflow-hidden p-0 bg-black">
-      {screenView.startsWith("player") ? (
-        <Screen screenLayoutRef={screenConfig.layoutReference}>
-          {adGroups.map((list, index) => (
-            <PlayerView
-              view="ads"
-              ads={list}
-              key={index}
-              screenView={screenView}
-              setScreenView={setScreenView}
-              onComplete={onComplete}
-              sendLog={sendLog}
-              index={index}
-              screenConfig={screenConfig}
-            />
-          ))}
-        </Screen>
-      ) : (
-        <Screen screenLayoutRef="VBSGTREW43">
-          <PlayerView
-            view="widget"
-            ads={widgets}
-            index={0}
-            onComplete={onWidgetComplete}
+    <Screen screenLayoutRef={screenConfig.layoutReference}>
+      {adGroups.map((list, index) => (
+        <PlayerView
+          ads={list}
+          key={index}
+          onComplete={onComplete}
+          sendLog={sendLog}
+          screenConfig={screenConfig}
+        />
+      ))}
+    </Screen>
+  );
+}
+
+function Widgets({
+  widgets,
+  screenConfig,
+  onComplete,
+}: {
+  widgets: Ad[];
+  screenConfig: ScreenConfig;
+  onComplete: () => void;
+}) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (currentIndex < widgets.length - 1) {
+        setCurrentIndex((prevIndex) => prevIndex + 1);
+      } else {
+        if (widgets.length > 1) {
+          onComplete();
+        }
+      }
+    }, 5000); // Adjust the duration as needed
+
+    return () => clearInterval(interval);
+  }, [widgets.length, currentIndex, onComplete]);
+
+  return (
+    <View
+      style={{
+        height,
+        width,
+        ...StyleSheet.absoluteFillObject,
+      }}
+    >
+      {widgets.map((widget, index) => (
+        <View
+          key={index}
+          style={{
+            ...StyleSheet.absoluteFillObject,
+          }}
+        >
+          <WebView
+            javaScriptEnabled
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: "#000",
+              opacity: index === currentIndex ? 1 : 0,
+            }}
+            source={{
+              uri: `${widget.adUrl}?${new URLSearchParams({
+                location: screenConfig?.city || "",
+              }).toString()}`,
+            }}
+            allowFileAccess
           />
-        </Screen>
-      )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function EmptyScreen() {
+  return (
+    <View className="flex-1 flex flex-col justify-center gap-[5vh] items-center p-10 text-center bg-black">
+      <View className="bg-white p-[2vh] rounded-[3vh]">
+        <Image
+          source={require("@/assets/images/logo.png")}
+          alt="Cjtronics"
+          className="w-72 h-12"
+        />
+      </View>
+      <Text className="text-[max(1.5vw,12px)] text-white text-center">
+        No Active Campaigns
+      </Text>
     </View>
   );
 }
@@ -276,125 +341,17 @@ function adNotActive(ad: Ad) {
 interface ViewProps {
   ads: Ad[];
   onComplete: () => void;
-  screenView?: string;
-  setScreenView?: React.Dispatch<React.SetStateAction<string>>;
   sendLog?: (params: SendLogParams) => void;
-  view: "ads" | "widget";
-  index: number;
   screenConfig?: ScreenConfig;
 }
 
-function PlayerView({
-  ads,
-  screenView,
-  onComplete,
-  sendLog,
-  view,
-  screenConfig,
-}: ViewProps) {
+function PlayerView({ ads, onComplete, sendLog, screenConfig }: ViewProps) {
   const sequence = ads;
-  const [currentAdIndex, setCurrentAdIndex] = useState(() => {
-    return view === "ads"
-      ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
-      : 0;
+  const { currentAdIndex } = usePlayingAds({
+    sequence,
+    sendLog,
+    onComplete,
   });
-
-  const [anyAdCanPlay, setAnyAdCanPlay] = useState(false);
-  const isSingleWidget = view === "widget" && sequence.length === 1;
-
-  const moveToNextAd = useCallback(() => {
-    setCurrentAdIndex((prevIndex) => {
-      let nextIndex = prevIndex + 1;
-
-      while (nextIndex < sequence.length) {
-        const ad = sequence[nextIndex];
-        if (adCanPlayToday(ad) && adCanPlayNow(ad)) {
-          return nextIndex;
-        }
-        // Log skipped ads
-        if (!adNotActive(ad)) {
-          sendLog?.({
-            accountId: ad.adAccountId,
-            adId: ad.adId,
-            campaignId: ad.campaignId,
-            messageType: "skipped",
-            uploadRef: ad.uploadRef,
-          });
-        }
-        nextIndex++;
-      }
-      return -1; // No more ads can play
-    });
-  }, [sequence, sendLog]);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    if (currentAdIndex >= 0 && currentAdIndex < sequence.length) {
-      const adToPlay = sequence[currentAdIndex];
-
-      if (adNotActive(adToPlay)) {
-        moveToNextAd();
-        return;
-      }
-
-      if (adCanPlayToday(adToPlay) && adCanPlayNow(adToPlay)) {
-        sendLog?.({
-          accountId: adToPlay.adAccountId,
-          adId: adToPlay.adId,
-          campaignId: adToPlay.campaignId,
-          messageType: "play",
-          uploadRef: adToPlay.uploadRef,
-        });
-
-        const adDuration = adToPlay.adConfiguration.duration * 1000;
-        timer = setTimeout(moveToNextAd, adDuration);
-      } else {
-        moveToNextAd();
-      }
-    } else {
-      if (!isSingleWidget) {
-        onComplete(); // Call onComplete when no ads can play
-      }
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [currentAdIndex, moveToNextAd, onComplete, sendLog, sequence]);
-
-  useEffect(() => {
-    setCurrentAdIndex(() => {
-      return view === "ads"
-        ? sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) ||
-            0
-        : 0;
-    });
-  }, [screenView, sequence, view]);
-
-  useEffect(() => {
-    setAnyAdCanPlay(
-      sequence.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
-    );
-  }, [sequence]);
-
-  // If no ads can play, do not render anything
-  if (!anyAdCanPlay) {
-    return null;
-  }
-
-  // If it's a single widget, render without sliding
-  if (isSingleWidget) {
-    const file = sequence[0];
-    return (
-      <PlayItem
-        index={0}
-        file={file}
-        screenConfig={screenConfig}
-        currentAdIndex={currentAdIndex}
-      />
-    );
-  }
 
   // Existing sliding implementation for multiple ads/widgets
   return (
@@ -502,33 +459,191 @@ function VideoWrapper({
   uri,
   remoteUrl,
 }: VideoWrapperProps) {
-  const videoRef = useRef<Video | null>(null);
-  const [videoUrl, setVideoUrl] = useState(uri);
+  const player = useVideoPlayer(uri, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+
+  const { error } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
+
+  useEffect(() => {
+    if (error) {
+      console.log(error, "video player error");
+
+      player.replace(remoteUrl || uri);
+    }
+  }, [error, player]);
 
   return (
-    <Video
-      key={videoUrl}
-      ref={videoRef}
+    <VideoView
+      player={player}
       style={[
         styles.media,
         {
           opacity: index === currentAdIndex ? 1 : 0,
         },
       ]}
-      source={{
-        uri: videoUrl,
-      }}
-      resizeMode={ResizeMode.STRETCH}
-      isLooping
-      isMuted
-      shouldPlay
-      onError={(e) => {
-        console.log(e, " video error ", index);
-        if (remoteUrl) {
-          setVideoUrl(remoteUrl);
-          console.log("video url set to remote url");
-        }
-      }}
+      contentFit="fill"
+      allowsFullscreen
+      nativeControls={false}
+      allowsPictureInPicture
     />
   );
 }
+function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
+  const [screenView, setScreenView] = useState<"player" | "widget">("player");
+
+  // Check if there are any playable ads or widgets
+  const emptyContent = useMemo(() => {
+    return adGroups.length == 0 && widgets.length == 0;
+  }, [adGroups, widgets]);
+
+  const onWidgetComplete = () => {
+    setScreenView("player");
+  };
+
+  const onPlayerComplete = () => {
+    setScreenView("widget");
+  };
+
+  return { screenView, emptyContent, onWidgetComplete, onPlayerComplete };
+}
+
+function usePlayingAds({
+  sequence,
+  sendLog,
+  onComplete,
+}: {
+  sequence: Ad[];
+  sendLog: ((params: SendLogParams) => void) | undefined;
+  onComplete: () => void;
+}) {
+  const [currentAdIndex, setCurrentAdIndex] = useState(() => {
+    return (
+      sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
+    );
+  });
+
+  const moveToNextAd = useCallback(() => {
+    setCurrentAdIndex((prevIndex) => {
+      let nextIndex = prevIndex + 1;
+
+      while (nextIndex < sequence.length) {
+        const ad = sequence[nextIndex];
+        if (adCanPlayToday(ad) && adCanPlayNow(ad)) {
+          return nextIndex;
+        }
+        // Log skipped ads
+        if (!adNotActive(ad)) {
+          sendLog?.({
+            accountId: ad.adAccountId,
+            adId: ad.adId,
+            campaignId: ad.campaignId,
+            messageType: "skipped",
+            uploadRef: ad.uploadRef,
+          });
+        }
+        nextIndex++;
+      }
+      return -1; // No more ads can play
+    });
+  }, [sequence, sendLog]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    if (currentAdIndex >= 0 && currentAdIndex < sequence.length) {
+      const adToPlay = sequence[currentAdIndex];
+
+      if (adNotActive(adToPlay)) {
+        moveToNextAd();
+        return;
+      }
+
+      if (adCanPlayToday(adToPlay) && adCanPlayNow(adToPlay)) {
+        sendLog?.({
+          accountId: adToPlay.adAccountId,
+          adId: adToPlay.adId,
+          campaignId: adToPlay.campaignId,
+          messageType: "play",
+          uploadRef: adToPlay.uploadRef,
+        });
+
+        const adDuration = adToPlay.adConfiguration.duration * 1000;
+        timer = setTimeout(moveToNextAd, adDuration);
+      } else {
+        moveToNextAd();
+      }
+    } else {
+      onComplete();
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [currentAdIndex, moveToNextAd, onComplete, sendLog, sequence]);
+
+  return { currentAdIndex };
+}
+// <Video
+//   style={[
+//     styles.media,
+//     {
+//       opacity: index === currentAdIndex ? 1 : 0,
+//     },
+//   ]}
+//   source={{
+//     uri: videoUrl,
+//   }}
+//   resizeMode={ResizeMode.STRETCH}
+//   isLooping
+//   isMuted
+//   shouldPlay
+//   onError={(e) => {
+//     console.log(e, " video error ", index);
+//     if (remoteUrl) {
+//       setVideoUrl(remoteUrl);
+//       console.log("video url set to remote url");
+//     }
+//   }}
+// />
+
+// function VideoWrapper({
+//   index,
+//   currentAdIndex,
+//   uri,
+//   remoteUrl,
+// }: VideoWrapperProps) {
+//   const videoRef = useRef<Video | null>(null);
+//   const [videoUrl, setVideoUrl] = useState(uri);
+
+//   return (
+//     <Video
+//       key={videoUrl}
+//       ref={videoRef}
+//       style={[
+//         styles.media,
+//         {
+//           opacity: index === currentAdIndex ? 1 : 0,
+//         },
+//       ]}
+//       source={{
+//         uri: videoUrl,
+//       }}
+//       resizeMode={ResizeMode.STRETCH}
+//       isLooping
+//       isMuted
+//       shouldPlay
+//       onError={(e) => {
+//         console.log(e, " video error ", index);
+//         if (remoteUrl) {
+//           setVideoUrl(remoteUrl);
+//           console.log("video url set to remote url");
+//         }
+//       }}
+//     />
+//   );
+// }

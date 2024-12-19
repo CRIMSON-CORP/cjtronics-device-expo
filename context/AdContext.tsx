@@ -67,6 +67,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const [request, setrequest] = useState(false);
   const [safeToPlay, setSafeToPlay] = useState(false);
   const deviceCode = useDeviceCode();
+
   const router = useRouter();
   const { item, setItem, loaded } = useAsyncStorage("cache-ads");
   const [adsFetchFromApi, setAdsFetchFromApi] = useState(false);
