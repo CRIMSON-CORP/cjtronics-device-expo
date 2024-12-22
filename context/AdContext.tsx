@@ -87,7 +87,9 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         ...ad,
         adUrl: cachedUrls[index],
       }));
+
       setAds(adsWithCachedUris);
+
       setItem({ ads: adsWithCachedUris, screen: config });
       setScreenConfig(config);
       console.log("loaded ads from background");
@@ -116,14 +118,14 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         const fileUri = `${FileSystem.documentDirectory}${url
           .split("/")
           .pop()}`;
-        const fileInfo = await FileSystem.getInfoAsync(fileUri);
+        // const fileInfo = await FileSystem.getInfoAsync(fileUri);
+        const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
+        localPaths.push(downloadedFile.uri);
 
-        if (fileInfo.exists) {
-          localPaths.push(fileUri);
-        } else {
-          const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
-          localPaths.push(downloadedFile.uri);
-        }
+        // if (fileInfo.exists) {
+        //   localPaths.push(fileUri);
+        // } else {
+        // }
       }
 
       console.log("downloading ads in background successful");
