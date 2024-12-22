@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import useAsyncStorage from "./useAsyncStorage";
 
 const nanoid = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 10);
-const testDeviceCode = "SRC2TS";
+// const testDeviceCode = 'YCB7WU'
 function useDeviceCode() {
   const { item: deviceCode, loaded, setItem } = useAsyncStorage("device-code");
 
@@ -16,7 +16,7 @@ function useDeviceCode() {
     }
   }, [deviceCode, loaded, setItem]);
 
-  return testDeviceCode;
+  return deviceCode;
 }
 
 export default useDeviceCode;
