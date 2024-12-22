@@ -134,6 +134,7 @@ function PlayerList({
   useEffect(() => {
     if (adListComplete === adGroups.length) {
       onPlayerComplete();
+      setAdListComplete(0);
     }
   }, [adListComplete]);
 
@@ -168,9 +169,7 @@ function Widgets({
       if (currentIndex < widgets.length - 1) {
         setCurrentIndex((prevIndex) => prevIndex + 1);
       } else {
-        if (widgets.length > 1) {
-          onComplete();
-        }
+        onComplete();
       }
     }, 5000); // Adjust the duration as needed
 
@@ -496,17 +495,21 @@ function VideoWrapper({
 function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
   const [screenView, setScreenView] = useState<"player" | "widget">("player");
 
+  const noAdsToPlay = !adGroups.some((adGroup) =>
+    adGroup.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
+  );
+
+  const noWidgetsToShow = widgets.length == 0;
+
   // Check if there are any playable ads or widgets
   const emptyContent = useMemo(() => {
-    return (
-      !adGroups.some((adGroup) =>
-        adGroup.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
-      ) && widgets.length == 0
-    );
+    return noAdsToPlay && noWidgetsToShow;
   }, [adGroups, widgets, screenView]);
 
   const onWidgetComplete = () => {
-    setScreenView("player");
+    if (!noAdsToPlay) {
+      setScreenView("player");
+    }
   };
 
   const onPlayerComplete = () => {
@@ -527,7 +530,7 @@ function usePlayingAds({
 }) {
   const [currentAdIndex, setCurrentAdIndex] = useState(() => {
     return (
-      sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) || 0
+      sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) ?? -1
     );
   });
 
@@ -555,6 +558,12 @@ function usePlayingAds({
       return -1; // No more ads can play
     });
   }, [sequence, sendLog]);
+
+  useEffect(() => {
+    setCurrentAdIndex(
+      sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) ?? -1
+    );
+  }, [sequence]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
