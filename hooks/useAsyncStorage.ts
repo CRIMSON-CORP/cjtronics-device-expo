@@ -32,8 +32,6 @@ function useAsyncStorage(key: string | undefined) {
       data: LocalState | ((prev: LocalState | undefined) => LocalState),
       saveToLocalStorage = true
     ) => {
-      console.log("setting item");
-
       let newState;
 
       if (typeof data === "function") {

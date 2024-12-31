@@ -35,7 +35,7 @@ const player = () => {
   } = useAdContext();
 
   return (
-    <View className="flex-1 bg-black">
+    <View style={styles.player} className="flex-grow bg-black relative">
       {adsLoading && <Loader />}
       {adsBackgroundLoading && <BackgroundLoader />}
       {safeToPlay && (
@@ -165,6 +165,10 @@ function Widgets({
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
+    if (widgets.length === 0) {
+      onComplete();
+      return;
+    }
     const interval = setInterval(() => {
       if (currentIndex < widgets.length - 1) {
         setCurrentIndex((prevIndex) => prevIndex + 1);
@@ -244,7 +248,8 @@ function Screen({ children, screenLayoutRef }: ScreenProps) {
       flexWrap: "wrap",
       aspectRatio: layoutConfig.landscape ? 16 / 9 : 9 / 16,
       width: layoutConfig.landscape ? "100%" : undefined,
-      height: layoutConfig.landscape ? "auto" : undefined,
+      height: layoutConfig.landscape ? "auto" : "100%",
+      ...StyleSheet.absoluteFillObject,
     };
 
     if (layoutConfig.split) {
@@ -443,6 +448,10 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 16,
   },
+  player: {
+    width,
+    height,
+  },
 });
 
 interface VideoWrapperProps {
@@ -558,6 +567,12 @@ function usePlayingAds({
       return -1; // No more ads can play
     });
   }, [sequence, sendLog]);
+
+  console.log(
+    sequence[currentAdIndex]?.adUrl,
+    "currentAdIndex",
+    currentAdIndex
+  );
 
   useEffect(() => {
     setCurrentAdIndex(
