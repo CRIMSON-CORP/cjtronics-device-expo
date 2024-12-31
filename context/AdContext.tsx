@@ -80,6 +80,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const setReceivedAds = useCallback(async (data: any) => {
     const config = data.config as ScreenConfig;
     const ads = data.data[0].campaigns as Ad[];
+    console.log(ads.map((ad) => ad.adConfiguration.endTime));
+
     try {
       const mediaUrls = ads.map((_data) => _data.adUrl);
       const cachedUrls = await cacheAdsInBackground(mediaUrls);
@@ -113,19 +115,27 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
       const localPaths = [];
 
+      // Delete all existing files before downloading
+      const fileUri = `${FileSystem.documentDirectory}`;
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (fileInfo.exists) {
+        const files = await FileSystem.readDirectoryAsync(fileUri);
+        const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
+
+        for (const file of files) {
+          if (mediaExtensions.some((ext) => file.endsWith(ext))) {
+            await FileSystem.deleteAsync(`${fileUri}/${file}`);
+          }
+        }
+      }
+
       // Download each URL sequentially
       for (const url of urls) {
         const fileUri = `${FileSystem.documentDirectory}${url
           .split("/")
           .pop()}`;
-        // const fileInfo = await FileSystem.getInfoAsync(fileUri);
         const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
         localPaths.push(downloadedFile.uri);
-
-        // if (fileInfo.exists) {
-        //   localPaths.push(fileUri);
-        // } else {
-        // }
       }
 
       console.log("downloading ads in background successful");
@@ -141,23 +151,34 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const cacheAds = useCallback(async (urls: string[]) => {
     try {
       setAdLoading(true);
-      console.log("downloading ads");
 
       const localPaths = [];
 
+      const fileUri = `${FileSystem.documentDirectory}`;
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (fileInfo.exists) {
+        console.log("deleting existing media files");
+
+        const files = await FileSystem.readDirectoryAsync(fileUri);
+        const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
+
+        for (const file of files) {
+          if (mediaExtensions.some((ext) => file.endsWith(ext))) {
+            console.log("deleting", file);
+            await FileSystem.deleteAsync(`${fileUri}/${file}`);
+          }
+        }
+        console.log("deleted existing media files");
+      }
+
+      console.log("downloading ads");
       // Download each URL sequentially
       for (const url of urls) {
         const fileUri = `${FileSystem.documentDirectory}${url
           .split("/")
           .pop()}`;
-        const fileInfo = await FileSystem.getInfoAsync(fileUri);
-
-        if (fileInfo.exists) {
-          localPaths.push(fileUri);
-        } else {
-          const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
-          localPaths.push(downloadedFile.uri);
-        }
+        const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
+        localPaths.push(downloadedFile.uri);
       }
 
       console.log("downloading ads successful");
@@ -191,7 +212,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       console.log("ads fetch, cahing ads...");
 
       const cachedUrls = await cacheAds(mediaUrls);
-      console.log("cached file urls", cachedUrls);
+      console.log("cached ads");
 
       const adsWithCachedUris = ads.map((ad, index) => ({
         ...ad,
