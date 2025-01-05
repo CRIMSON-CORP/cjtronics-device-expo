@@ -138,18 +138,23 @@ function PlayerList({
     }
   }, [adListComplete]);
 
+  const playerViewList = useMemo(() => {
+    return adGroups.map((list, index) => (
+      <PlayerView
+        ads={list}
+        key={index}
+        onComplete={onComplete}
+        sendLog={sendLog}
+        screenConfig={screenConfig}
+      />
+    ));
+  }, []);
+
   return (
-    <Screen screenLayoutRef={screenConfig.layoutReference}>
-      {adGroups.map((list, index) => (
-        <PlayerView
-          ads={list}
-          key={index}
-          onComplete={onComplete}
-          sendLog={sendLog}
-          screenConfig={screenConfig}
-        />
-      ))}
-    </Screen>
+    <Screen
+      playerViewList={playerViewList}
+      screenLayoutRef={screenConfig.layoutReference}
+    />
   );
 }
 
@@ -233,15 +238,16 @@ function EmptyScreen() {
 }
 
 interface ScreenProps {
+  playerViewList: React.JSX.Element[];
   screenLayoutRef: string;
-  children: React.ReactNode;
 }
 
-function Screen({ children, screenLayoutRef }: ScreenProps) {
+function Screen({ screenLayoutRef, playerViewList }: ScreenProps) {
   const layoutConfig = screenReferenceToConfig[screenLayoutRef];
 
   const screenStyle = useMemo(() => {
-    const screenStyle: StyleProp<ViewStyle> & CSSProperties = {
+    const screenStyle: StyleProp<ViewStyle> &
+      CSSProperties & { splits?: number[] } = {
       flexGrow: 1,
       overflow: "hidden",
       flexDirection: layoutConfig.horizontal ? "row" : "column",
@@ -254,17 +260,24 @@ function Screen({ children, screenLayoutRef }: ScreenProps) {
 
     if (layoutConfig.split) {
       const splits = layoutConfig.split.split(",").map((split) => +split / 100);
-
-      splits.forEach((split) => {
-        screenStyle.flex = split;
-      });
+      screenStyle.splits = splits;
     }
     return screenStyle;
   }, [layoutConfig]);
 
   return (
     <View style={screenStyle} className="mx-auto">
-      {children}
+      {playerViewList.map((playerView, index) => (
+        <View
+          key={index}
+          style={{
+            flex: screenStyle.splits ? screenStyle.splits[index] : 1,
+            width: "100%",
+          }}
+        >
+          {playerView}
+        </View>
+      ))}
     </View>
   );
 }

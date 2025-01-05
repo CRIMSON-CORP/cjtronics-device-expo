@@ -16,7 +16,7 @@ function useDeviceCode() {
     }
   }, [deviceCode, loaded, setItem]);
 
-  return deviceCode;
+  return "P7PKKC";
 }
 
 export default useDeviceCode;
