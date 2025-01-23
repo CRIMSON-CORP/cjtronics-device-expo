@@ -200,7 +200,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(fetchTimeout);
       }
       const response = await fetch(
-        `https://cjtronics.tushcode.com/v1/public-advert/campaigns/${deviceCode}`
+        `https://cjtronics.errandexpress.com.ng/v1/public-advert/campaigns/${deviceCode}`
       );
       if (!response.ok) throw new Error("Failed to fetch");
       const data: { config: ScreenConfig; data: [{ campaigns: Ad[] }] } =

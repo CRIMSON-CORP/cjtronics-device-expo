@@ -1,2 +1,2 @@
 export const WEBSOCKET_URL =
-  "wss://cjtronics-frontend-socket.bdpcjt.easypanel.host";
+  "wss://cjtronics-test-socket-test.bdpcjt.easypanel.host";

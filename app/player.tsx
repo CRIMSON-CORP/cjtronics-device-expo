@@ -272,7 +272,10 @@ function Screen({ screenLayoutRef, playerViewList }: ScreenProps) {
           key={index}
           style={{
             flex: screenStyle.splits ? screenStyle.splits[index] : 1,
-            width: "100%",
+            width:
+              layoutConfig.landscape && screenStyle.splits ? "auto" : "100%",
+            height:
+              layoutConfig.landscape && screenStyle.splits ? "100%" : "auto",
           }}
         >
           {playerView}
