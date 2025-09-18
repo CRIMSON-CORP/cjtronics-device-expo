@@ -1,7 +1,7 @@
 import useAsyncStorage from "@/hooks/useAsyncStorage";
 import useDeviceCode from "@/hooks/useDeviceCode";
 import useSocket from "@/hooks/useSocket";
-import * as FileSystem from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import React, {
   createContext,
@@ -72,6 +72,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const { item, setItem, loaded } = useAsyncStorage("cache-ads");
   const [adsFetchFromApi, setAdsFetchFromApi] = useState(false);
   const [adsBackgroundLoading, setAdsBackgroundLoading] = useState(false);
+  const [backendUrl, setBackendUrl] = useState("https://cjtronics-api.com.ng");
   const localLoaded = useRef(false);
   const localItem = useRef<any>(null);
   const alreadyUsingLocal = useRef(false);
@@ -104,6 +105,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const { sendLog } = useSocket({
+    onReceiveBackendUrl: setBackendUrl,
     onReceiveAds: setReceivedAds,
     deviceCode,
   });
@@ -113,28 +115,31 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       setAdsBackgroundLoading(true);
       console.log("downloading ads in background");
 
-      const localPaths = [];
+      const localPaths: string[] = [];
+      const documentDir = Paths.document; // Replaces FileSystem.getDocumentDirectoryAsync
 
       // Delete all existing files before downloading
-      const fileUri = `${FileSystem.documentDirectory}`;
-      const fileInfo = await FileSystem.getInfoAsync(fileUri);
-      if (fileInfo.exists) {
-        const files = await FileSystem.readDirectoryAsync(fileUri);
+      const dirInfo = documentDir.info();
+      if (dirInfo.exists) {
+        const contents = documentDir.list();
         const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
 
-        for (const file of files) {
-          if (mediaExtensions.some((ext) => file.endsWith(ext))) {
-            await FileSystem.deleteAsync(`${fileUri}/${file}`);
-          }
+        const mediaFiles = contents.filter(
+          (item) =>
+            item instanceof File &&
+            mediaExtensions.some((ext) => item.name.endsWith(ext))
+        );
+
+        for (const file of mediaFiles) {
+          file.delete();
         }
       }
 
       // Download each URL sequentially
       for (const url of urls) {
-        const fileUri = `${FileSystem.documentDirectory}${url
-          .split("/")
-          .pop()}`;
-        const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
+        const filename = url.split("/").pop() || "unknown";
+        const targetFile = new File(documentDir, filename);
+        const downloadedFile = await File.downloadFileAsync(url, targetFile);
         localPaths.push(downloadedFile.uri);
       }
 
@@ -152,32 +157,50 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     try {
       setAdLoading(true);
 
-      const localPaths = [];
+      const localPaths: string[] = [];
+      const documentDir = Paths.document; // Replaces FileSystem.documentDirectory
 
-      const fileUri = `${FileSystem.documentDirectory}`;
-      const fileInfo = await FileSystem.getInfoAsync(fileUri);
-      if (fileInfo.exists) {
+      // Get directory info (replaces getInfoAsync)
+      const dirInfo = documentDir.info();
+      if (dirInfo.exists) {
         console.log("deleting existing media files");
 
-        const files = await FileSystem.readDirectoryAsync(fileUri);
+        // Read directory contents (replaces readDirectoryAsync)
+        const contents = documentDir.list();
         const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
 
-        for (const file of files) {
-          if (mediaExtensions.some((ext) => file.endsWith(ext))) {
-            console.log("deleting", file);
-            await FileSystem.deleteAsync(`${fileUri}/${file}`);
-          }
+        // Filter and delete media files
+        const mediaFiles = contents.filter(
+          (item) =>
+            item instanceof File &&
+            mediaExtensions.some((ext) => item.name.endsWith(ext))
+        );
+
+        for (const file of mediaFiles) {
+          console.log("deleting", file.name);
+          file.delete(); // Replaces deleteAsync
         }
         console.log("deleted existing media files");
       }
 
       console.log("downloading ads");
-      // Download each URL sequentially
+
+      // Download each URL sequentially (replaces downloadAsync)
       for (const url of urls) {
-        const fileUri = `${FileSystem.documentDirectory}${url
-          .split("/")
-          .pop()}`;
-        const downloadedFile = await FileSystem.downloadAsync(url, fileUri);
+        const filename = url.split("/").pop() || "unknown"; // Extract filename safely
+        const targetFile = new File(documentDir, filename); // Create File instance
+
+        const fileInfo = targetFile.info();
+        if (fileInfo.exists) {
+          console.log(
+            `File ${filename} already exists at ${targetFile.uri}, skipping download`
+          );
+          localPaths.push(targetFile.uri); // Add existing file's URI to localPaths
+          continue;
+        }
+
+        console.log(url, "file url");
+        const downloadedFile = await File.downloadFileAsync(url, targetFile); // New download method
         localPaths.push(downloadedFile.uri);
       }
 
@@ -187,7 +210,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.log(error);
       setAdLoading(false);
-      return await cacheAds(urls);
+      return await cacheAds(urls); // Note: Consider adding retry limits to avoid infinite recursion
     }
   }, []);
 
@@ -199,8 +222,12 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       if (fetchTimeout) {
         clearTimeout(fetchTimeout);
       }
+      console.log(
+        `fetching new ads from: ${backendUrl}/v1/public-advert/campaigns/${deviceCode}`
+      );
+
       const response = await fetch(
-        `https://cjtronics.errandexpress.com.ng/v1/public-advert/campaigns/${deviceCode}`
+        `${backendUrl}/v1/public-advert/campaigns/${deviceCode}`
       );
       if (!response.ok) throw new Error("Failed to fetch");
       const data: { config: ScreenConfig; data: [{ campaigns: Ad[] }] } =
@@ -226,6 +253,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       setAdsFetchFromApi(false);
       alreadyUsingLocal.current = false;
     } catch (error: any) {
+      console.log(error);
       if (
         localLoaded.current &&
         localItem.current &&
@@ -250,7 +278,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         fetchAds();
       }, 10000);
     }
-  }, [deviceCode, loaded]);
+  }, [deviceCode, loaded, backendUrl]);
 
   useEffect(() => {
     if (deviceCode) {

@@ -3,9 +3,11 @@ import NetInfo from "@react-native-community/netinfo";
 import { useCallback, useEffect, useState } from "react";
 
 function useSocket({
+  onReceiveBackendUrl,
   onReceiveAds,
   deviceCode,
 }: {
+  onReceiveBackendUrl: (data: string) => void;
   onReceiveAds: (data: any) => void;
   deviceCode: LocalState | undefined;
 }) {
@@ -16,9 +18,11 @@ function useSocket({
     if (deviceCode) {
       let newSocket: WebSocket | null = null;
       const connect = () => {
-        if (newSocket) {
+        if (newSocket && newSocket.readyState === WebSocket.OPEN) {
           newSocket.close();
         }
+        console.log(WEBSOCKET_URL + `?type=device&id=${deviceCode}`);
+
         newSocket = new WebSocket(
           WEBSOCKET_URL + `?type=device&id=${deviceCode}`
         );
@@ -27,21 +31,26 @@ function useSocket({
           setSocket(newSocket);
           console.log("Socket connected");
         };
-        newSocket.onclose = () => {
+        newSocket.onclose = (event) => {
           if (timeout) {
             clearTimeout(timeout);
             timeout = null;
           }
           setSocket(null);
-          console.log("Socket closed, reconnecting in 5 seconds");
+          console.log("Socket closed, reconnecting in 5 seconds", event.reason);
           timeout = setTimeout(connect, 5000);
         };
 
         newSocket.onmessage = (event) => {
           const data = JSON.parse(event.data);
+          console.log(data, "data");
+
           if (data.event === "send-to-device") {
             onReceiveAds(data.data);
             return;
+          }
+          if (data.event === "backend-url") {
+            onReceiveBackendUrl(data.data);
           }
 
           if (data.event === "ping") {
@@ -59,13 +68,15 @@ function useSocket({
       });
 
       return () => {
+        timeout && clearTimeout(timeout);
         unsubscribe();
         if (newSocket) {
           newSocket.close();
+          newSocket = null;
         }
       };
     }
-  }, [deviceCode, onReceiveAds]);
+  }, [deviceCode]);
 
   const sendLog = useCallback(
     ({
