@@ -178,6 +178,7 @@ function Widgets({
       if (currentIndex < widgets.length - 1) {
         setCurrentIndex((prevIndex) => prevIndex + 1);
       } else {
+        setCurrentIndex(0);
         onComplete();
       }
     }, 5000); // Adjust the duration as needed
