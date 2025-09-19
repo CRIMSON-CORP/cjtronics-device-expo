@@ -200,8 +200,15 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         }
 
         console.log(url, "file url");
-        const downloadedFile = await File.downloadFileAsync(url, targetFile); // New download method
-        localPaths.push(downloadedFile.uri);
+        try {
+          const downloadedFile = await File.downloadFileAsync(url, targetFile); // New download method
+          localPaths.push(downloadedFile.uri);
+        } catch (error) {
+          console.log(
+            `Failed to download File ${filename} for ${url}, skipping file`
+          );
+          continue;
+        }
       }
 
       console.log("downloading ads successful");
