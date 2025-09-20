@@ -1,7 +1,7 @@
 import useAsyncStorage from "@/hooks/useAsyncStorage";
 import useDeviceCode from "@/hooks/useDeviceCode";
 import useSocket from "@/hooks/useSocket";
-import { File, Paths } from "expo-file-system";
+import { Directory, File as ExpoFile, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import React, {
   createContext,
@@ -110,114 +110,220 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     deviceCode,
   });
 
-  const cacheAdsInBackground = useCallback(async (urls: string[]) => {
-    try {
-      setAdsBackgroundLoading(true);
-      console.log("downloading ads in background");
+  // Utility function to delete media files from directory
+  const deleteMediaFiles = (
+    documentDir: Directory,
+    isForeground: boolean = false
+  ) => {
+    const dirInfo = documentDir.info();
+    if (dirInfo.exists) {
+      if (isForeground) {
+        console.log("deleting existing media files");
+      }
 
-      const localPaths: string[] = [];
-      const documentDir = Paths.document; // Replaces FileSystem.getDocumentDirectoryAsync
+      const contents = documentDir.list();
+      const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
 
-      // Delete all existing files before downloading
-      const dirInfo = documentDir.info();
-      if (dirInfo.exists) {
-        const contents = documentDir.list();
-        const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
+      const mediaFiles = contents.filter(
+        (item) =>
+          item instanceof ExpoFile &&
+          mediaExtensions.some((ext) => item.name.endsWith(ext))
+      );
 
-        const mediaFiles = contents.filter(
-          (item) =>
-            item instanceof File &&
-            mediaExtensions.some((ext) => item.name.endsWith(ext))
+      for (const file of mediaFiles) {
+        if (isForeground) {
+          console.log("deleting", file.name);
+        }
+        file.delete();
+      }
+
+      if (isForeground) {
+        console.log("deleted existing media files");
+      }
+    }
+  };
+
+  // Utility function to download a single file with retries
+  const downloadFileWithRetries = async (
+    url: string,
+    documentDir: Directory,
+    localPaths: string[],
+    delay: number
+  ) => {
+    const filename = url.split("/").pop() || "unknown";
+    const targetFile = new ExpoFile(documentDir, filename);
+
+    // Check if file already exists and is valid
+    const existingFileInfo = targetFile.info();
+    if (
+      existingFileInfo.exists &&
+      existingFileInfo?.size &&
+      existingFileInfo.size > 0
+    ) {
+      console.log(
+        `File ${filename} already exists and is valid (size: ${existingFileInfo.size}), skipping download`
+      );
+      localPaths.push(targetFile.uri);
+      return;
+    } else if (existingFileInfo.exists) {
+      console.log(`Deleting invalid existing file ${filename}`);
+      targetFile.delete();
+    }
+
+    let downloadSuccess = false;
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (!downloadSuccess && retryCount < maxRetries) {
+      try {
+        console.log(
+          `Attempting to download ${filename} from ${url} (attempt ${
+            retryCount + 1
+          }/${maxRetries})`
         );
 
-        for (const file of mediaFiles) {
-          file.delete();
+        const downloadedFile = await ExpoFile.downloadFileAsync(
+          url,
+          targetFile,
+          {
+            headers: {
+              Accept: "*/*",
+              "User-Agent": "YourApp/1.0",
+            },
+          }
+        );
+
+        // Validate the downloaded file
+        if (!validateDownloadedFile(targetFile)) {
+          throw new Error(`File validation failed for ${filename}`);
+        }
+
+        localPaths.push(downloadedFile.uri);
+        downloadSuccess = true;
+
+        if (retryCount > 0) {
+          console.log(
+            `Successfully downloaded ${filename} after ${
+              retryCount + 1
+            } attempts`
+          );
+        }
+      } catch (error) {
+        retryCount++;
+        console.log(
+          `Failed to download ${filename} on attempt ${retryCount}/${maxRetries}:`,
+          error
+        );
+
+        if (retryCount === maxRetries) {
+          console.log(
+            `Failed to download ${filename} after ${maxRetries} attempts, skipping file`
+          );
+          localPaths.push(url); // Use original URL as fallback
+        } else {
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
+    }
+  };
+
+  const validateDownloadedFile = (file: ExpoFile) => {
+    const info = file.info();
+
+    // Check file exists and has size
+    if (!info.exists || info.size === 0) {
+      console.log(
+        `File validation failed: ${file.name} - doesn't exist or empty`
+      );
+      return false;
+    }
+
+    // Check file extension matches expected type
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const validExtensions = [".jpg", ".jpeg", ".png", ".mp4", ".mp3"];
+
+    if (!validExtensions.includes(`.${extension}`)) {
+      console.log(`File validation failed: ${file.name} - invalid extension`);
+      return false;
+    }
+
+    console.log(
+      `File validation passed: ${file.name} (size: ${info.size} bytes)`
+    );
+    return true;
+  };
+
+  // Main download function that handles the core logic
+  const performAdDownload = async (
+    urls: string[],
+    setLoading: (loading: boolean) => void,
+    logPrefix: string,
+    isForeground: boolean,
+    retryDelay: number
+  ) => {
+    try {
+      setLoading(true);
+
+      if (isForeground) {
+        console.log("downloading ads");
+      } else {
+        console.log("downloading ads in background");
+      }
+
+      const localPaths: string[] = [];
+      const documentDir = Paths.document;
+
+      // Delete all existing files before downloading
+      deleteMediaFiles(documentDir, isForeground);
 
       // Download each URL sequentially
       for (const url of urls) {
-        const filename = url.split("/").pop() || "unknown";
-        const targetFile = new File(documentDir, filename);
-        const downloadedFile = await File.downloadFileAsync(url, targetFile);
-        localPaths.push(downloadedFile.uri);
+        await downloadFileWithRetries(url, documentDir, localPaths, retryDelay);
       }
 
-      console.log("downloading ads in background successful");
-      setAdsBackgroundLoading(false);
-      return localPaths; // All files are downloaded sequentially
+      if (isForeground) {
+        console.log("downloading ads successful");
+      } else {
+        console.log("downloading ads in background successful");
+      }
+
+      setLoading(false);
+      return localPaths;
     } catch (error) {
       console.log(error);
-      setAdsBackgroundLoading(false);
-      return [];
+      setLoading(false);
+      throw error; // Re-throw to handle in the main functions
+    }
+  };
+
+  // Background download function
+  const cacheAdsInBackground = useCallback(async (urls: string[]) => {
+    try {
+      return await performAdDownload(
+        urls,
+        setAdsBackgroundLoading,
+        "background",
+        false,
+        1000 // 1s delay for background
+      );
+    } catch (error) {
+      return cacheAdsInBackground(urls); // Keep your existing recursive retry
     }
   }, []);
 
+  // Foreground download function
   const cacheAds = useCallback(async (urls: string[]) => {
     try {
-      setAdLoading(true);
-
-      const localPaths: string[] = [];
-      const documentDir = Paths.document; // Replaces FileSystem.documentDirectory
-
-      // Get directory info (replaces getInfoAsync)
-      const dirInfo = documentDir.info();
-      if (dirInfo.exists) {
-        console.log("deleting existing media files");
-
-        // Read directory contents (replaces readDirectoryAsync)
-        const contents = documentDir.list();
-        const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
-
-        // Filter and delete media files
-        const mediaFiles = contents.filter(
-          (item) =>
-            item instanceof File &&
-            mediaExtensions.some((ext) => item.name.endsWith(ext))
-        );
-
-        for (const file of mediaFiles) {
-          console.log("deleting", file.name);
-          file.delete(); // Replaces deleteAsync
-        }
-        console.log("deleted existing media files");
-      }
-
-      console.log("downloading ads");
-
-      // Download each URL sequentially (replaces downloadAsync)
-      for (const url of urls) {
-        const filename = url.split("/").pop() || "unknown"; // Extract filename safely
-        const targetFile = new File(documentDir, filename); // Create File instance
-
-        const fileInfo = targetFile.info();
-        if (fileInfo.exists) {
-          console.log(
-            `File ${filename} already exists at ${targetFile.uri}, skipping download`
-          );
-          localPaths.push(targetFile.uri); // Add existing file's URI to localPaths
-          continue;
-        }
-
-        console.log(url, "file url");
-        try {
-          const downloadedFile = await File.downloadFileAsync(url, targetFile); // New download method
-          localPaths.push(downloadedFile.uri);
-        } catch (error) {
-          console.log(
-            `Failed to download File ${filename} for ${url}, skipping file`
-          );
-          continue;
-        }
-      }
-
-      console.log("downloading ads successful");
-      setAdLoading(false);
-      return localPaths; // All files are downloaded sequentially
+      return await performAdDownload(
+        urls,
+        setAdLoading,
+        "",
+        true, // isForeground
+        1000 // 1s fixed delay for foreground (no exponential backoff)
+      );
     } catch (error) {
-      console.log(error);
-      setAdLoading(false);
-      return await cacheAds(urls); // Note: Consider adding retry limits to avoid infinite recursion
+      return await cacheAds(urls); // Keep your existing recursive retry
     }
   }, []);
 

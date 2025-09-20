@@ -10,13 +10,13 @@ import React, {
 import {
   ActivityIndicator,
   Dimensions,
-  Image,
   StyleProp,
   StyleSheet,
   Text,
   View,
   ViewStyle,
 } from "react-native";
+import { Image } from "expo-image";
 import WebView from "react-native-webview";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
@@ -414,13 +414,18 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
         <Image
           source={{ uri: file.adUrl }}
           alt={file.uploadName}
-          key={currentAdIndex}
-          resizeMode="contain"
+          key={`${file.uploadRef}-${index}`}
+          contentFit="contain"
+          contentPosition="center"
           style={styles.media}
+          onError={(event) => {
+            console.log(event.error, "image error");
+          }}
         />
       ) : file.adType === "video" && index === currentAdIndex ? (
         <VideoWrapper
           index={index}
+          key={`${file.uploadRef}-${index}`}
           currentAdIndex={currentAdIndex}
           uri={file.adUrl}
           remoteUrl={file.remoteUrl}
@@ -436,6 +441,7 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
         >
           <WebView
             javaScriptEnabled
+            key={`${file.uploadRef}-${index}`}
             style={{
               width,
               backgroundColor: "#000",
@@ -497,8 +503,9 @@ function VideoWrapper({
   useEffect(() => {
     if (error) {
       console.log(error, "video player error");
+      console.log("Replacing url ", remoteUrl);
 
-      player.replace(remoteUrl || uri);
+      player.replaceAsync(remoteUrl || uri);
     }
   }, [error, player]);
 
@@ -512,7 +519,9 @@ function VideoWrapper({
         },
       ]}
       contentFit="fill"
-      allowsFullscreen
+      fullscreenOptions={{
+        enable: true,
+      }}
       nativeControls={false}
       allowsPictureInPicture
     />
@@ -586,9 +595,11 @@ function usePlayingAds({
   }, [sequence, sendLog]);
 
   console.log(
-    sequence[currentAdIndex]?.adUrl,
-    "currentAdIndex",
-    currentAdIndex
+    sequence[currentAdIndex].adUrl,
+    "rendering ",
+    sequence[currentAdIndex].adType,
+    "ad, at index: ",
+    sequence[currentAdIndex]
   );
 
   useEffect(() => {
