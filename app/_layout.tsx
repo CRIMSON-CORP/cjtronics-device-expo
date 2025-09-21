@@ -17,6 +17,11 @@ import { StatusBar } from "expo-status-bar";
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
+if (!__DEV__) {
+  console.log = () => {};
+  console.warn = () => {};
+}
+
 export default function RootLayout() {
   useKeepAwake();
   const colorScheme = useColorScheme();

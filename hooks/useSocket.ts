@@ -1,6 +1,19 @@
 import { WEBSOCKET_URL } from "@/constants/env";
 import NetInfo from "@react-native-community/netinfo";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+interface SendLogParams {
+  adId: string;
+  accountId: string;
+  campaignId: string;
+  messageType: string;
+  uploadRef: string;
+}
+
+interface LocalState {
+  // Define the shape of deviceCode
+  id: string;
+}
 
 function useSocket({
   onReceiveBackendUrl,
@@ -9,75 +22,112 @@ function useSocket({
 }: {
   onReceiveBackendUrl: (data: string) => void;
   onReceiveAds: (data: any) => void;
-  deviceCode: LocalState | undefined;
+  deviceCode: string;
 }) {
   const [socket, setSocket] = useState<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const socketRef = useRef<WebSocket | null>(null);
+  const isUnmountedRef = useRef(false);
+  const reconnectAttemptsRef = useRef<number>(0);
+  const maxReconnectAttempts = 10; // Limit reconnection attempts
+  const reconnectInterval = 5000; // 5 seconds
+
+  const connect = useCallback(() => {
+    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      console.error(
+        "Max reconnection attempts reached. Stopping reconnection."
+      );
+      return;
+    }
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.close();
+    }
+
+    if (!deviceCode) return;
+
+    console.log(
+      `Connecting to WebSocket: ${WEBSOCKET_URL}?type=device&id=${deviceCode}`
+    );
+    const newSocket = new WebSocket(
+      `${WEBSOCKET_URL}?type=device&id=${deviceCode}`
+    );
+
+    newSocket.onopen = () => {
+      setSocket(newSocket);
+      socketRef.current = newSocket;
+      reconnectAttemptsRef.current = 0; // Reset attempts on successful connection
+      console.log("WebSocket connected");
+    };
+
+    newSocket.onclose = (event) => {
+      setSocket(null);
+      socketRef.current = null;
+      console.log(
+        `WebSocket closed: ${event.reason}. Reconnecting in ${
+          reconnectInterval / 1000
+        }s...`
+      );
+
+      if (!isUnmountedRef.current) {
+        reconnectAttemptsRef.current += 1;
+        reconnectTimeoutRef.current = setTimeout(connect, reconnectInterval);
+      }
+    };
+
+    newSocket.onerror = (event) => {
+      console.log("WebSocket error:", event);
+      newSocket.close(); // Close the socket on error
+    };
+
+    newSocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.event === "send-to-device") {
+          onReceiveAds(data.data);
+        } else if (data.event === "backend-url") {
+          onReceiveBackendUrl(data.data);
+        } else if (data.event === "ping") {
+          newSocket.send(JSON.stringify({ event: "pong" }));
+        }
+      } catch (error) {
+        console.error("Error parsing WebSocket message:", error);
+      }
+    };
+
+    socketRef.current = newSocket;
+  }, [deviceCode, onReceiveAds, onReceiveBackendUrl]);
 
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    if (deviceCode) {
-      let newSocket: WebSocket | null = null;
-      const connect = () => {
-        if (newSocket && newSocket.readyState === WebSocket.OPEN) {
-          newSocket.close();
-        }
-        console.log(WEBSOCKET_URL + `?type=device&id=${deviceCode}`);
+    if (!deviceCode) return;
 
-        newSocket = new WebSocket(
-          WEBSOCKET_URL + `?type=device&id=${deviceCode}`
-        );
+    isUnmountedRef.current = false;
+    connect();
 
-        newSocket.onopen = () => {
-          setSocket(newSocket);
-          console.log("Socket connected");
-        };
-        newSocket.onclose = (event) => {
-          if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-          }
-          setSocket(null);
-          console.log("Socket closed, reconnecting in 5 seconds", event.reason);
-          timeout = setTimeout(connect, 5000);
-        };
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      if (state.isConnected && !socketRef.current) {
+        console.log("Network connected, attempting WebSocket connection...");
+        connect();
+      }
+    });
 
-        newSocket.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          console.log(data, "data");
+    return () => {
+      isUnmountedRef.current = true;
 
-          if (data.event === "send-to-device") {
-            onReceiveAds(data.data);
-            return;
-          }
-          if (data.event === "backend-url") {
-            onReceiveBackendUrl(data.data);
-          }
-
-          if (data.event === "ping") {
-            newSocket?.send(JSON.stringify({ event: "pong" }));
-          }
-        };
-      };
-      connect();
-      const unsubscribe = NetInfo.addEventListener((state) => {
-        if (state.isConnected) {
-          if (!newSocket) {
-            connect();
-          }
-        }
-      });
-
-      return () => {
-        timeout && clearTimeout(timeout);
-        unsubscribe();
-        if (newSocket) {
-          newSocket.close();
-          newSocket = null;
-        }
-      };
-    }
-  }, [deviceCode]);
-
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+        setSocket(null);
+      }
+      unsubscribe();
+    };
+  }, [connect, deviceCode]);
   const sendLog = useCallback(
     ({
       adId,
@@ -86,10 +136,12 @@ function useSocket({
       messageType,
       uploadRef,
     }: SendLogParams) => {
-      if (socket && socket.readyState === WebSocket.OPEN) {
+      if (
+        socketRef.current &&
+        socketRef.current.readyState === WebSocket.OPEN
+      ) {
         const currentTime = new Date();
-
-        socket.send(
+        socketRef.current.send(
           JSON.stringify({
             event: "device-log",
             logs: {
@@ -105,16 +157,15 @@ function useSocket({
             },
           })
         );
+        console.log("Log sent:");
       } else {
-        console.log("log cound not be sent as socket connection is lost");
+        console.warn("Cannot send log: WebSocket connection is not open");
       }
     },
-    [socket, deviceCode]
+    [deviceCode]
   );
 
-  return {
-    sendLog,
-  };
+  return { sendLog };
 }
 
 export default useSocket;

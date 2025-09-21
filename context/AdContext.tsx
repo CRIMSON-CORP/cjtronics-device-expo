@@ -12,7 +12,7 @@ import React, {
   useState,
 } from "react";
 
-interface ContextProps {
+export interface ContextProps {
   adGroups: Ad[][];
   widgets: Ad[];
   sendLog: (params: SendLogParams) => void;
@@ -22,6 +22,7 @@ interface ContextProps {
   deviceCode: LocalState | undefined;
   safeToPlay: boolean;
   adsBackgroundLoading: boolean;
+  downloadProgressData: { downloaded: number; total: number } | null;
 }
 
 export const AdContext = createContext<ContextProps>({
@@ -46,6 +47,7 @@ export const AdContext = createContext<ContextProps>({
   deviceCode: "",
   safeToPlay: false,
   adsBackgroundLoading: false,
+  downloadProgressData: null,
 });
 
 function AdProvider({ children }: { children: React.ReactNode }) {
@@ -76,12 +78,13 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const localLoaded = useRef(false);
   const localItem = useRef<any>(null);
   const alreadyUsingLocal = useRef(false);
+  const [downloadProgressData, setDownloadProgressData] =
+    useState<ContextProps["downloadProgressData"]>(null);
 
   let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
   const setReceivedAds = useCallback(async (data: any) => {
     const config = data.config as ScreenConfig;
     const ads = data.data[0].campaigns as Ad[];
-    console.log(ads.map((ad) => ad.adConfiguration.endTime));
 
     try {
       const mediaUrls = ads.map((_data) => _data.adUrl);
@@ -91,15 +94,15 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         adUrl: cachedUrls[index],
       }));
 
+      console.log("setting ads");
       setAds(adsWithCachedUris);
-
       setItem({ ads: adsWithCachedUris, screen: config });
       setScreenConfig(config);
       console.log("loaded ads from background");
 
       setSafeToPlay(true);
     } catch (error) {
-      console.log(error);
+      console.log(error, " setReceivedAds");
       setReceivedAds({ data, config });
     }
   }, []);
@@ -118,27 +121,53 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     const dirInfo = documentDir.info();
     if (dirInfo.exists) {
       if (isForeground) {
-        console.log("deleting existing media files");
+        console.log("Starting deletion of media and HTML files");
       }
 
       const contents = documentDir.list();
-      const mediaExtensions = [".mp4", ".mp3", ".jpg", ".jpeg", ".png"];
+      const targetExtensions = [
+        // Image extensions
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        // Video extensions
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".wmv",
+        ".flv",
+        // HTML extensions
+        ".html",
+        ".htm",
+      ];
 
       const mediaFiles = contents.filter(
         (item) =>
           item instanceof ExpoFile &&
-          mediaExtensions.some((ext) => item.name.endsWith(ext))
+          targetExtensions.some((ext) => item.name.toLowerCase().endsWith(ext))
       );
 
       for (const file of mediaFiles) {
-        if (isForeground) {
-          console.log("deleting", file.name);
+        try {
+          if (isForeground) {
+            console.log(`Deleting file: ${file.name}`);
+          }
+          file.delete();
+        } catch (error) {
+          console.error(`Failed to delete file: ${file.name}`, error);
         }
-        file.delete();
       }
 
       if (isForeground) {
-        console.log("deleted existing media files");
+        console.log("Completed deletion of media and HTML files");
+      }
+    } else {
+      if (isForeground) {
+        console.log("Directory does not exist");
       }
     }
   };
@@ -241,7 +270,25 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
     // Check file extension matches expected type
     const extension = file.name.split(".").pop()?.toLowerCase();
-    const validExtensions = [".jpg", ".jpeg", ".png", ".mp4", ".mp3"];
+    const validExtensions = [
+      // Image extensions
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".bmp",
+      ".webp",
+      // Video extensions
+      ".mp4",
+      ".mov",
+      ".avi",
+      ".mkv",
+      ".wmv",
+      ".flv",
+      // HTML extensions
+      ".html",
+      ".htm",
+    ];
 
     if (!validExtensions.includes(`.${extension}`)) {
       console.log(`File validation failed: ${file.name} - invalid extension`);
@@ -278,8 +325,16 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       deleteMediaFiles(documentDir, isForeground);
 
       // Download each URL sequentially
+      setDownloadProgressData({
+        downloaded: 0,
+        total: 1,
+      });
       for (const url of urls) {
         await downloadFileWithRetries(url, documentDir, localPaths, retryDelay);
+        setDownloadProgressData({
+          downloaded: localPaths.length,
+          total: urls.length,
+        });
       }
 
       if (isForeground) {
@@ -287,6 +342,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       } else {
         console.log("downloading ads in background successful");
       }
+
+      setDownloadProgressData(null);
 
       setLoading(false);
       return localPaths;
@@ -359,6 +416,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         remoteUrl: ad.adUrl,
         adUrl: cachedUrls[index],
       }));
+      console.log("setting ads");
+
       setAds(adsWithCachedUris);
       setItem({ ads: adsWithCachedUris, screen: data.config });
       setScreenConfig(data.config);
@@ -384,7 +443,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       }
       console.log(
         error.response?.data?.message || error.message,
-        "ff",
+        " ",
         deviceCode
       );
       fetchTimeout = setTimeout(() => {
@@ -446,6 +505,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     deviceCode,
     safeToPlay,
     adsBackgroundLoading,
+    downloadProgressData,
   };
 
   return (

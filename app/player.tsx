@@ -20,6 +20,7 @@ import { Image } from "expo-image";
 import WebView from "react-native-webview";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
+import { ContextProps } from "@/context/AdContext";
 
 const { width, height } = Dimensions.get("screen");
 
@@ -32,10 +33,14 @@ const player = () => {
     screenConfig,
     safeToPlay,
     adsBackgroundLoading,
+    downloadProgressData,
   } = useAdContext();
 
   return (
     <View style={styles.player} className="flex-grow bg-black relative">
+      {downloadProgressData && (
+        <DownloadProgress downloadProgressData={downloadProgressData} />
+      )}
       {adsLoading && <Loader />}
       {adsBackgroundLoading && <BackgroundLoader />}
       {safeToPlay && (
@@ -59,6 +64,26 @@ function Loader() {
       color="#ffffff"
       className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
     />
+  );
+}
+
+function DownloadProgress({
+  downloadProgressData,
+}: {
+  downloadProgressData: ContextProps["downloadProgressData"];
+}) {
+  return (
+    <Text className="text-white/60 absolute bottom-2 left-4 z-20">
+      Downloading {downloadProgressData?.downloaded}/
+      {downloadProgressData?.total} files. (
+      {parseFloat(
+        (
+          (downloadProgressData?.downloaded ?? 0) /
+          (downloadProgressData?.total ?? 1)
+        ).toPrecision(1)
+      ) * 100}
+      %)
+    </Text>
   );
 }
 
@@ -595,11 +620,11 @@ function usePlayingAds({
   }, [sequence, sendLog]);
 
   console.log(
-    sequence[currentAdIndex].adUrl,
+    sequence[currentAdIndex]?.adUrl,
     "rendering ",
-    sequence[currentAdIndex].adType,
+    sequence[currentAdIndex]?.adType,
     "ad, at index: ",
-    sequence[currentAdIndex]
+    currentAdIndex
   );
 
   useEffect(() => {
