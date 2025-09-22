@@ -22,7 +22,21 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
 import { ContextProps } from "@/context/AdContext";
 
-const { width, height } = Dimensions.get("screen");
+// const { width, height } = Dimensions.get("screen");
+
+function useScreenDimensions() {
+  const [screen, setScreen] = useState(Dimensions.get("screen"));
+
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener("change", ({ screen }) => {
+      setScreen(screen);
+    });
+
+    return () => subscription?.remove();
+  }, []);
+
+  return screen;
+}
 
 const player = () => {
   const {
@@ -35,9 +49,10 @@ const player = () => {
     adsBackgroundLoading,
     downloadProgressData,
   } = useAdContext();
+  const windowDimensions = useScreenDimensions();
 
   return (
-    <View style={styles.player} className="flex-grow bg-black relative">
+    <View style={windowDimensions} className="flex-grow bg-black relative">
       {downloadProgressData && (
         <DownloadProgress downloadProgressData={downloadProgressData} />
       )}
@@ -72,17 +87,15 @@ function DownloadProgress({
 }: {
   downloadProgressData: ContextProps["downloadProgressData"];
 }) {
+  const percent =
+    ((downloadProgressData?.downloaded ?? 0) /
+      (downloadProgressData?.total ?? 1)) *
+    100;
+
   return (
     <Text className="text-white/60 absolute bottom-2 left-4 z-20">
       Downloading {downloadProgressData?.downloaded}/
-      {downloadProgressData?.total} files. (
-      {parseFloat(
-        (
-          (downloadProgressData?.downloaded ?? 0) /
-          (downloadProgressData?.total ?? 1)
-        ).toPrecision(1)
-      ) * 100}
-      %)
+      {downloadProgressData?.total} files. {percent.toFixed(1)}%
     </Text>
   );
 }
@@ -161,7 +174,7 @@ function PlayerList({
       onPlayerComplete();
       setAdListComplete(0);
     }
-  }, [adListComplete]);
+  }, [adListComplete, adGroups.length, onPlayerComplete]);
 
   const playerViewList = useMemo(() => {
     return adGroups.map((list, index) => (
@@ -173,7 +186,7 @@ function PlayerList({
         screenConfig={screenConfig}
       />
     ));
-  }, []);
+  }, [adGroups, sendLog, screenConfig, onComplete]);
 
   return (
     <Screen
@@ -193,23 +206,47 @@ function Widgets({
   onComplete: () => void;
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const { width, height } = useScreenDimensions();
 
   useEffect(() => {
     if (widgets.length === 0) {
       onComplete();
       return;
     }
-    const interval = setInterval(() => {
-      if (currentIndex < widgets.length - 1) {
-        setCurrentIndex((prevIndex) => prevIndex + 1);
-      } else {
-        setCurrentIndex(0);
-        onComplete();
-      }
-    }, 5000); // Adjust the duration as needed
 
-    return () => clearInterval(interval);
-  }, [widgets.length, currentIndex, onComplete]);
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNext = () => {
+      timer = setTimeout(() => {
+        if (!mounted) return;
+
+        // use functional updater so we never rely on stale `currentIndex`
+        setCurrentIndex((prev) => {
+          if (prev < widgets.length - 1) {
+            // advance to next widget
+            // schedule next tick
+            scheduleNext();
+            return prev + 1;
+          } else {
+            // we reached the last widget — call onComplete and reset to 0
+            // don't schedule another tick
+            onComplete();
+            return 0;
+          }
+        });
+      }, 5000);
+    };
+
+    // start the cycle
+    scheduleNext();
+
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+      // don't force-reset the index here; let remounting decide initial state
+    };
+  }, [widgets.length, onComplete]);
 
   return (
     <View
@@ -381,7 +418,7 @@ function adNotActive(ad: Ad) {
   const endTime = new Date(ad.adConfiguration.endTime);
 
   // Check if current date is within ad's overall time window
-  if (now < startTime || now > endTime) return false;
+  return now < startTime || now > endTime;
 }
 
 interface ViewProps {
@@ -392,6 +429,7 @@ interface ViewProps {
 }
 
 function PlayerView({ ads, onComplete, sendLog, screenConfig }: ViewProps) {
+  const { width } = useScreenDimensions();
   const sequence = ads;
   const { currentAdIndex } = usePlayingAds({
     sequence,
@@ -430,23 +468,14 @@ interface PlayItem {
 }
 
 function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
+  const { width, height } = useScreenDimensions();
   return (
     <View
       className="w-full h-full absolute"
       style={{ transform: [{ translateX: index * width }] }}
     >
       {file.adType === "image" && index === currentAdIndex ? (
-        <Image
-          source={{ uri: file.adUrl }}
-          alt={file.uploadName}
-          key={`${file.uploadRef}-${index}`}
-          contentFit="contain"
-          contentPosition="center"
-          style={styles.media}
-          onError={(event) => {
-            console.log(event.error, "image error");
-          }}
-        />
+        <ImageWrapper file={file} key={`${file.uploadRef}-${index}`} />
       ) : file.adType === "video" && index === currentAdIndex ? (
         <VideoWrapper
           index={index}
@@ -455,7 +484,7 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
           uri={file.adUrl}
           remoteUrl={file.remoteUrl}
         />
-      ) : file.adType === "iframe" ? (
+      ) : file.adType === "iframe" && screenConfig ? (
         <View
           style={{
             height,
@@ -464,20 +493,7 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
             opacity: index === currentAdIndex ? 1 : 0,
           }}
         >
-          <WebView
-            javaScriptEnabled
-            key={`${file.uploadRef}-${index}`}
-            style={{
-              width,
-              backgroundColor: "#000",
-            }}
-            source={{
-              uri: `${file.adUrl}?${new URLSearchParams({
-                location: screenConfig?.city || "",
-              }).toString()}`,
-            }}
-            allowFileAccess
-          />
+          <AdIframe file={file} screenConfig={screenConfig} />
         </View>
       ) : null}
     </View>
@@ -487,18 +503,12 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
 const styles = StyleSheet.create({
   media: {
     width: "100%",
-    maxWidth: width,
     height: "100%",
-    maxHeight: height,
   },
   backgroundLoader: {
     position: "absolute",
     right: 16,
     bottom: 16,
-  },
-  player: {
-    width,
-    height,
   },
 });
 
@@ -507,6 +517,29 @@ interface VideoWrapperProps {
   currentAdIndex: number;
   uri: string;
   remoteUrl?: string;
+}
+
+function ImageWrapper({ file }: { file: Ad }) {
+  const { width, height } = useScreenDimensions();
+  const [uri, setUri] = useState(file.adUrl);
+
+  return (
+    <Image
+      source={{ uri }}
+      alt={file.uploadName}
+      contentFit="contain"
+      contentPosition="center"
+      style={[{ width, height, maxWidth: width, maxHeight: height }]}
+      onError={() => {
+        // replace with your fallback url
+        console.log("image failed to load, using remote url ", file.remoteUrl);
+
+        if (file.remoteUrl) {
+          setUri(file.remoteUrl);
+        }
+      }}
+    />
+  );
 }
 
 function VideoWrapper({
@@ -552,6 +585,43 @@ function VideoWrapper({
     />
   );
 }
+
+function AdIframe({
+  file,
+  screenConfig,
+}: {
+  file: Ad;
+  screenConfig: ScreenConfig;
+}) {
+  const { width, height } = useScreenDimensions();
+  const [uri, setUri] = useState(
+    `${file.adUrl}?${new URLSearchParams({
+      location: screenConfig?.city || "",
+    }).toString()}`
+  );
+
+  return (
+    <WebView
+      javaScriptEnabled
+      key={`${file.uploadRef}`}
+      style={{
+        width,
+        height,
+        backgroundColor: "#000",
+      }}
+      source={{ uri }}
+      allowFileAccess
+      onError={() => {
+        // swap to fallback URL if main one fails
+        console.log("iframe failed to load, using remote url ", file.remoteUrl);
+        if (file.remoteUrl) {
+          setUri(file.remoteUrl);
+        }
+      }}
+    />
+  );
+}
+
 function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
   const [screenView, setScreenView] = useState<"player" | "widget">("player");
 
@@ -589,9 +659,7 @@ function usePlayingAds({
   onComplete: () => void;
 }) {
   const [currentAdIndex, setCurrentAdIndex] = useState(() => {
-    return (
-      sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad)) ?? -1
-    );
+    return sequence.findIndex((ad) => adCanPlayToday(ad) && adCanPlayNow(ad));
   });
 
   const moveToNextAd = useCallback(() => {

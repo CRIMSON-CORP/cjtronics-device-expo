@@ -81,31 +81,46 @@ function AdProvider({ children }: { children: React.ReactNode }) {
   const [downloadProgressData, setDownloadProgressData] =
     useState<ContextProps["downloadProgressData"]>(null);
 
-  let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
-  const setReceivedAds = useCallback(async (data: any) => {
-    const config = data.config as ScreenConfig;
-    const ads = data.data[0].campaigns as Ad[];
+  const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setReceivedAds = useCallback(
+    async (data: any) => {
+      const config = data.config as ScreenConfig;
+      const ads = data.data[0].campaigns as Ad[];
 
-    try {
-      const mediaUrls = ads.map((_data) => _data.adUrl);
-      const cachedUrls = await cacheAdsInBackground(mediaUrls);
-      const adsWithCachedUris = ads.map((ad, index) => ({
-        ...ad,
-        adUrl: cachedUrls[index],
-      }));
+      try {
+        const mediaUrls = ads.map((_data) => _data.adUrl);
+        const cachedUrls = await cacheAdsInBackground(mediaUrls);
+        const adsWithCachedUris = ads.map((ad, index) => ({
+          ...ad,
+          adUrl: cachedUrls[index],
+        }));
 
-      console.log("setting ads");
-      setAds(adsWithCachedUris);
-      setItem({ ads: adsWithCachedUris, screen: config });
-      setScreenConfig(config);
-      console.log("loaded ads from background");
+        console.log("setting ads");
+        setAds(adsWithCachedUris);
+        setItem({ ads: adsWithCachedUris, screen: config });
+        setScreenConfig(config);
+        console.log("loaded ads from background");
 
-      setSafeToPlay(true);
-    } catch (error) {
-      console.log(error, " setReceivedAds");
-      setReceivedAds({ data, config });
-    }
-  }, []);
+        setSafeToPlay(true);
+      } catch (error) {
+        console.log(error, " setReceivedAds");
+        // Fallback: use uncached URLs to avoid recursion and still enable playback
+        try {
+          const adsWithRemoteUris = ads.map((ad) => ({
+            ...ad,
+            adUrl: ad.adUrl,
+          }));
+          setAds(adsWithRemoteUris);
+          setItem({ ads: adsWithRemoteUris, screen: config });
+          setScreenConfig(config);
+          setSafeToPlay(true);
+        } catch (innerError) {
+          console.log(innerError, " setReceivedAds fallback failed");
+        }
+      }
+    },
+    [setItem]
+  );
 
   const { sendLog } = useSocket({
     onReceiveBackendUrl: setBackendUrl,
@@ -386,11 +401,21 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
   const fetchAds = useCallback(async () => {
     if (adsFetchFromApi) return;
-    console.log("fetching ads");
 
     try {
-      if (fetchTimeout) {
-        clearTimeout(fetchTimeout);
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+        fetchTimeoutRef.current = null;
+      }
+
+      if (localItem.current) {
+        setAds(localItem.current.ads as Ad[]);
+        setScreenConfig(localItem.current.screen as ScreenConfig);
+        setrequest(true);
+        setSafeToPlay(true);
+        alreadyUsingLocal.current = true;
+        console.log("using local on load");
+        return;
       }
       console.log(
         `fetching new ads from: ${backendUrl}/v1/public-advert/campaigns/${deviceCode}`
@@ -446,18 +471,24 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         " ",
         deviceCode
       );
-      fetchTimeout = setTimeout(() => {
+      fetchTimeoutRef.current = setTimeout(() => {
         fetchAds();
       }, 10000);
     }
   }, [deviceCode, loaded, backendUrl]);
 
   useEffect(() => {
-    if (deviceCode) {
+    if (deviceCode && loaded) {
       fetchAds();
       setAdsFetchFromApi(true);
     }
-  }, [fetchAds, deviceCode]);
+    return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+        fetchTimeoutRef.current = null;
+      }
+    };
+  }, [fetchAds, deviceCode, loaded]);
   const filteredAds = useMemo(() => {
     const filteredCampaigsWithoutView = ads.filter(
       (campaign) => campaign.campaignView
