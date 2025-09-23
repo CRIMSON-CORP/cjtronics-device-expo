@@ -210,7 +210,7 @@ function Widgets({
 
   useEffect(() => {
     if (widgets.length === 0) {
-      onComplete();
+      Promise.resolve().then(onComplete);
       return;
     }
 
@@ -232,7 +232,7 @@ function Widgets({
             // we reached the last widget — call onComplete and reset to 0
             // don't schedule another tick
             onComplete();
-            return 0;
+            return prev;
           }
         });
       }, 10000);
@@ -625,8 +625,12 @@ function AdIframe({
 function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
   const [screenView, setScreenView] = useState<"player" | "widget">("player");
 
-  const noAdsToPlay = !adGroups.some((adGroup) =>
-    adGroup.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
+  const noAdsToPlay = useMemo(
+    () =>
+      !adGroups.some((adGroup) =>
+        adGroup.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
+      ),
+    [adGroups]
   );
 
   const noWidgetsToShow = widgets.length == 0;
@@ -636,15 +640,15 @@ function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
     return noAdsToPlay && noWidgetsToShow;
   }, [adGroups, widgets, screenView]);
 
-  const onWidgetComplete = () => {
+  const onWidgetComplete = useCallback(() => {
     if (!noAdsToPlay) {
       setScreenView("player");
     }
-  };
+  }, [noAdsToPlay]);
 
-  const onPlayerComplete = () => {
+  const onPlayerComplete = useCallback(() => {
     setScreenView("widget");
-  };
+  }, []);
 
   return { screenView, emptyContent, onWidgetComplete, onPlayerComplete };
 }
