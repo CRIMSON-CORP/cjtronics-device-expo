@@ -235,7 +235,7 @@ function Widgets({
             return 0;
           }
         });
-      }, 5000);
+      }, 10000);
     };
 
     // start the cycle
@@ -271,9 +271,9 @@ function Widgets({
               opacity: index === currentIndex ? 1 : 0,
             }}
             source={{
-              uri: `${widget.adUrl}?${new URLSearchParams({
-                location: screenConfig?.city || "",
-              }).toString()}`,
+              uri: `${
+                widget.adUrl
+              }?location=${screenConfig?.city.toLowerCase()}`,
             }}
             allowFileAccess
           />
@@ -704,7 +704,7 @@ function usePlayingAds({
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    if (currentAdIndex >= 0 && currentAdIndex < sequence.length) {
+    if (currentAdIndex >= 0 && currentAdIndex < sequence.length - 1) {
       const adToPlay = sequence[currentAdIndex];
 
       if (adNotActive(adToPlay)) {

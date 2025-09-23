@@ -300,9 +300,6 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       ".mkv",
       ".wmv",
       ".flv",
-      // HTML extensions
-      ".html",
-      ".htm",
     ];
 
     if (!validExtensions.includes(`.${extension}`)) {
