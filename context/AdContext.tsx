@@ -93,6 +93,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         const adsWithCachedUris = ads.map((ad, index) => ({
           ...ad,
           adUrl: cachedUrls[index],
+          remoteUrl: ad.adUrl,
         }));
 
         console.log("setting ads");
@@ -155,9 +156,6 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         ".mkv",
         ".wmv",
         ".flv",
-        // HTML extensions
-        ".html",
-        ".htm",
       ];
 
       const mediaFiles = contents.filter(
@@ -300,6 +298,10 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       ".mkv",
       ".wmv",
       ".flv",
+
+      // HTML extensions
+      ".html",
+      ".htm",
     ];
 
     if (!validExtensions.includes(`.${extension}`)) {

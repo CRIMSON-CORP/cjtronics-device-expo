@@ -203,7 +203,7 @@ function Widgets({
 }: {
   widgets: Ad[];
   screenConfig: ScreenConfig;
-  onComplete: () => void;
+  onComplete: () => boolean;
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const { width, height } = useScreenDimensions();
@@ -220,7 +220,6 @@ function Widgets({
     const scheduleNext = () => {
       timer = setTimeout(() => {
         if (!mounted) return;
-
         // use functional updater so we never rely on stale `currentIndex`
         setCurrentIndex((prev) => {
           if (prev < widgets.length - 1) {
@@ -231,7 +230,18 @@ function Widgets({
           } else {
             // we reached the last widget — call onComplete and reset to 0
             // don't schedule another tick
-            onComplete();
+
+            const shouldLoop = onComplete();
+
+            // Schedule the next potential run.
+            scheduleNext();
+
+            // Follow the instruction.
+            if (shouldLoop) {
+              return 0; // Loop back to the start.
+            }
+
+            // If instructed not to loop, stay on the last item to prevent a flash.
             return prev;
           }
         });
@@ -248,6 +258,13 @@ function Widgets({
     };
   }, [widgets.length, onComplete]);
 
+  console.log(
+    "Widget index:",
+    currentIndex,
+    "of",
+    widgets.length - 1,
+    widgets[currentIndex].remoteUrl
+  );
   return (
     <View
       style={{
@@ -272,7 +289,7 @@ function Widgets({
             }}
             source={{
               uri: `${
-                widget.adUrl
+                widget.remoteUrl
               }?location=${screenConfig?.city.toLowerCase()}`,
             }}
             allowFileAccess
@@ -623,14 +640,15 @@ function AdIframe({
 }
 
 function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
-  const [screenView, setScreenView] = useState<"player" | "widget">("player");
-
   const noAdsToPlay = useMemo(
     () =>
       !adGroups.some((adGroup) =>
         adGroup.some((ad) => adCanPlayToday(ad) && adCanPlayNow(ad))
       ),
     [adGroups]
+  );
+  const [screenView, setScreenView] = useState<"player" | "widget">(
+    noAdsToPlay ? "widget" : "player"
   );
 
   const noWidgetsToShow = widgets.length == 0;
@@ -643,14 +661,22 @@ function useAds({ adGroups, widgets }: { adGroups: Ad[][]; widgets: Ad[] }) {
   const onWidgetComplete = useCallback(() => {
     if (!noAdsToPlay) {
       setScreenView("player");
+      return false; // Instruction: DO NOT loop
     }
+    // Otherwise, tell the child it's okay to continue looping.
+    return true; //
   }, [noAdsToPlay]);
 
   const onPlayerComplete = useCallback(() => {
     setScreenView("widget");
   }, []);
 
-  return { screenView, emptyContent, onWidgetComplete, onPlayerComplete };
+  return {
+    screenView,
+    emptyContent,
+    onWidgetComplete,
+    onPlayerComplete,
+  };
 }
 
 function usePlayingAds({
