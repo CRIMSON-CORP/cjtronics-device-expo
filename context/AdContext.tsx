@@ -1,6 +1,7 @@
 import useAsyncStorage from "@/hooks/useAsyncStorage";
 import useDeviceCode from "@/hooks/useDeviceCode";
 import useSocket from "@/hooks/useSocket";
+import { adNotActive } from "@/utils";
 import { Directory, File as ExpoFile, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import React, {
@@ -88,7 +89,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       const ads = data.data[0].campaigns as Ad[];
 
       try {
-        const mediaUrls = ads.map((_data) => _data.adUrl);
+        const adsWithRemovedExpiredAds = ads.filter((ad) => !adNotActive(ad));
+        const mediaUrls = adsWithRemovedExpiredAds.map((ad) => ad.adUrl);
         const cachedUrls = await cacheAdsInBackground(mediaUrls);
         const adsWithCachedUris = ads.map((ad, index) => ({
           ...ad,
@@ -429,7 +431,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
       setrequest(true);
       const ads = data.data[0].campaigns;
-      const mediaUrls = ads.map((ad) => ad.adUrl);
+      const adsWithRemovedExpiredAds = ads.filter((ad) => !adNotActive(ad));
+      const mediaUrls = adsWithRemovedExpiredAds.map((ad) => ad.adUrl);
       console.log("ads fetch, cahing ads...");
 
       const cachedUrls = await cacheAds(mediaUrls);

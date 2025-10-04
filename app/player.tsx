@@ -21,6 +21,7 @@ import WebView from "react-native-webview";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
 import { ContextProps } from "@/context/AdContext";
+import { adNotActive } from "@/utils";
 
 // const { width, height } = Dimensions.get("screen");
 
@@ -425,17 +426,6 @@ function adCanPlayNow(ad: Ad) {
 
     return isAfterDailyStart && isBeforeDailyEnd;
   }
-}
-
-function adNotActive(ad: Ad) {
-  if (!ad) return false;
-
-  const now = new Date();
-  const startTime = new Date(ad.adConfiguration.startTime);
-  const endTime = new Date(ad.adConfiguration.endTime);
-
-  // Check if current date is within ad's overall time window
-  return now < startTime || now > endTime;
 }
 
 interface ViewProps {
