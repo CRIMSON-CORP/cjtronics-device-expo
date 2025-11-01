@@ -92,7 +92,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         const adsWithRemovedExpiredAds = ads.filter((ad) => !adNotActive(ad));
         const mediaUrls = adsWithRemovedExpiredAds.map((ad) => ad.adUrl);
         const cachedUrls = await cacheAdsInBackground(mediaUrls);
-        const adsWithCachedUris = ads.map((ad, index) => ({
+
+        const adsWithCachedUris = adsWithRemovedExpiredAds.map((ad, index) => ({
           ...ad,
           adUrl: cachedUrls[index],
           remoteUrl: ad.adUrl,

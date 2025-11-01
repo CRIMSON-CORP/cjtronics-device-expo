@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -207,64 +208,43 @@ function Widgets({
   onComplete: () => boolean;
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const currentIndexRef = useRef(currentIndex);
   const { width, height } = useScreenDimensions();
 
   useEffect(() => {
+    currentIndexRef.current = currentIndex;
+
     if (widgets.length === 0) {
       Promise.resolve().then(onComplete);
       return;
     }
 
-    let mounted = true;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timer = setTimeout(() => {
+      const latestIndex = currentIndexRef.current;
 
-    const scheduleNext = () => {
-      timer = setTimeout(() => {
-        if (!mounted) return;
-        // use functional updater so we never rely on stale `currentIndex`
-        setCurrentIndex((prev) => {
-          if (prev < widgets.length - 1) {
-            // advance to next widget
-            // schedule next tick
-            scheduleNext();
-            return prev + 1;
-          } else {
-            // we reached the last widget — call onComplete and reset to 0
-            // don't schedule another tick
+      if (latestIndex < widgets.length - 1) {
+        setCurrentIndex(latestIndex + 1);
+        return;
+      }
 
-            const shouldLoop = onComplete();
+      const shouldLoop = onComplete();
 
-            // Schedule the next potential run.
-            scheduleNext();
-
-            // Follow the instruction.
-            if (shouldLoop) {
-              return 0; // Loop back to the start.
-            }
-
-            // If instructed not to loop, stay on the last item to prevent a flash.
-            return prev;
-          }
-        });
-      }, 10000);
-    };
-
-    // start the cycle
-    scheduleNext();
+      if (shouldLoop) {
+        setCurrentIndex(0);
+      }
+    }, 10000);
 
     return () => {
-      mounted = false;
-      if (timer) clearTimeout(timer);
-      // don't force-reset the index here; let remounting decide initial state
+      clearTimeout(timer);
     };
-  }, [widgets.length, onComplete]);
+  }, [widgets.length, onComplete, currentIndex]);
 
   console.log(
     "Widget index:",
     currentIndex,
     "of",
     widgets.length - 1,
-    widgets[currentIndex].remoteUrl
+    widgets[currentIndex]?.remoteUrl
   );
   return (
     <View
@@ -444,6 +424,8 @@ function PlayerView({ ads, onComplete, sendLog, screenConfig }: ViewProps) {
     onComplete,
   });
 
+  if (currentAdIndex === -1) return;
+
   // Existing sliding implementation for multiple ads/widgets
   return (
     <View className="flex-1 w-full h-full">
@@ -555,15 +537,17 @@ function VideoWrapper({
   uri,
   remoteUrl,
 }: VideoWrapperProps) {
-  const player = useVideoPlayer(uri, (player) => {
+  const player = useVideoPlayer(uri || remoteUrl || "", (player) => {
     player.loop = true;
     player.muted = true;
     player.play();
   });
 
-  const { error } = useEvent(player, "statusChange", {
+  const { error, status } = useEvent(player, "statusChange", {
     status: player.status,
   });
+
+  console.log(status, "player status");
 
   useEffect(() => {
     if (error) {
@@ -575,21 +559,27 @@ function VideoWrapper({
   }, [error, player]);
 
   return (
-    <VideoView
-      player={player}
-      style={[
-        styles.media,
-        {
-          opacity: index === currentAdIndex ? 1 : 0,
-        },
-      ]}
-      contentFit="fill"
-      fullscreenOptions={{
-        enable: true,
-      }}
-      nativeControls={false}
-      allowsPictureInPicture
-    />
+    <View className="relative justify-center items-center">
+      <VideoView
+        player={player}
+        style={[
+          styles.media,
+          {
+            opacity: index === currentAdIndex ? 1 : 0,
+          },
+        ]}
+        contentFit="fill"
+        fullscreenOptions={{
+          enable: true,
+        }}
+        nativeControls={false}
+        allowsPictureInPicture
+      />
+
+      {status === "loading" && (
+        <ActivityIndicator color="white" size={36} className="absolute" />
+      )}
+    </View>
   );
 }
 
@@ -708,7 +698,7 @@ function usePlayingAds({
   }, [sequence, sendLog]);
 
   console.log(
-    sequence[currentAdIndex]?.adUrl,
+    sequence[currentAdIndex]?.adUrl || sequence[currentAdIndex]?.remoteUrl,
     "rendering ",
     sequence[currentAdIndex]?.adType,
     "ad, at index: ",
@@ -724,7 +714,7 @@ function usePlayingAds({
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    if (currentAdIndex >= 0 && currentAdIndex < sequence.length - 1) {
+    if (currentAdIndex >= 0 && currentAdIndex <= sequence.length - 1) {
       const adToPlay = sequence[currentAdIndex];
 
       if (adNotActive(adToPlay)) {
