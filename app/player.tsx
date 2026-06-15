@@ -240,11 +240,7 @@ function Widgets({
   }, [widgets.length, onComplete, currentIndex]);
 
   console.log(
-    "Widget index:",
-    currentIndex,
-    "of",
-    widgets.length - 1,
-    widgets[currentIndex]?.remoteUrl
+    `[PLAYBACK] [INFO] Rendering Widget: ${widgets[currentIndex]?.uploadName || widgets[currentIndex]?.adId || "Unknown"} (Index: ${currentIndex + 1} of ${widgets.length})`
   );
   return (
     <View
@@ -442,6 +438,7 @@ function PlayerView({ ads, onComplete, sendLog, screenConfig }: ViewProps) {
             key={file.uploadRef + index}
             currentAdIndex={currentAdIndex}
             screenConfig={screenConfig}
+            total={sequence.length}
           />
         ))}
       </View>
@@ -449,14 +446,15 @@ function PlayerView({ ads, onComplete, sendLog, screenConfig }: ViewProps) {
   );
 }
 
-interface PlayItem {
+interface PlayItemProps {
   file: Ad;
   index: number;
   currentAdIndex: number;
   screenConfig: ScreenConfig | undefined;
+  total: number;
 }
 
-function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
+function PlayItem({ file, index, currentAdIndex, screenConfig, total }: PlayItemProps) {
   const { width, height } = useScreenDimensions();
   return (
     <View
@@ -464,7 +462,7 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
       style={{ transform: [{ translateX: index * width }] }}
     >
       {file.adType === "image" && index === currentAdIndex ? (
-        <ImageWrapper file={file} key={`${file.uploadRef}-${index}`} />
+        <ImageWrapper file={file} key={`${file.uploadRef}-${index}`} index={index} total={total} />
       ) : file.adType === "video" && index === currentAdIndex ? (
         <VideoWrapper
           index={index}
@@ -472,6 +470,8 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
           currentAdIndex={currentAdIndex}
           uri={file.adUrl}
           remoteUrl={file.remoteUrl}
+          file={file}
+          total={total}
         />
       ) : file.adType === "iframe" && screenConfig ? (
         <View
@@ -482,7 +482,7 @@ function PlayItem({ file, index, currentAdIndex, screenConfig }: PlayItem) {
             opacity: index === currentAdIndex ? 1 : 0,
           }}
         >
-          <AdIframe file={file} screenConfig={screenConfig} />
+          <AdIframe file={file} screenConfig={screenConfig} index={index} total={total} />
         </View>
       ) : null}
     </View>
@@ -506,11 +506,21 @@ interface VideoWrapperProps {
   currentAdIndex: number;
   uri: string;
   remoteUrl?: string;
+  file: Ad;
+  total: number;
 }
 
-function ImageWrapper({ file }: { file: Ad }) {
+function ImageWrapper({ file, index, total }: { file: Ad; index: number; total: number }) {
   const { width, height } = useScreenDimensions();
   const [uri, setUri] = useState(file.adUrl);
+
+  const format = file.adUrl.split(".").pop()?.toUpperCase() || "UNKNOWN";
+
+  useEffect(() => {
+    console.log(
+      `[PLAYBACK] [INFO] Rendering Image: "${file.uploadName || "unnamed"}" (Index: ${index + 1} of ${total}) (Format: ${format})`
+    );
+  }, [file.uploadRef, index, total]);
 
   return (
     <Image
@@ -520,8 +530,9 @@ function ImageWrapper({ file }: { file: Ad }) {
       contentPosition="center"
       style={[{ width, height, maxWidth: width, maxHeight: height }]}
       onError={() => {
-        // replace with your fallback url
-        console.log("image failed to load, using remote url ", file.remoteUrl);
+        console.error(
+          `[PLAYBACK] [ERROR] Image failed to load: ${uri} (Index: ${index + 1} of ${total}). Replacing with remote URL: ${file.remoteUrl}`
+        );
 
         if (file.remoteUrl) {
           setUri(file.remoteUrl);
@@ -536,6 +547,8 @@ function VideoWrapper({
   currentAdIndex,
   uri,
   remoteUrl,
+  file,
+  total,
 }: VideoWrapperProps) {
   const player = useVideoPlayer(uri || remoteUrl || "", (player) => {
     player.loop = true;
@@ -547,16 +560,31 @@ function VideoWrapper({
     status: player.status,
   });
 
-  console.log(status, "player status");
+  const extension = (uri || remoteUrl || "").split(".").pop()?.toLowerCase() || "unknown";
+  const format = extension.toUpperCase();
+  
+  let codec = "Unknown Codec";
+  if (extension === "mp4") codec = "H.264 (AVC) / AAC";
+  else if (extension === "mov") codec = "ProRes / H.264 / AAC";
+  else if (extension === "webm") codec = "VP8 / VP9 / Vorbis";
+  else if (extension === "mkv") codec = "H.264 / H.265 / AAC / AC3";
+  else if (extension === "avi") codec = "MPEG-4 / MJPEG / MP3";
+
+  useEffect(() => {
+    const durationText = player.duration > 0 ? `${player.duration.toFixed(1)}s` : "Unknown";
+    console.log(
+      `[PLAYBACK] [INFO] Video status for "${file.uploadName || "unnamed"}": ${status} (Index: ${index + 1} of ${total}) (Format: ${format}) (Estimated Codec: ${codec}) (Duration: ${durationText})`
+    );
+  }, [status, player.duration, index, total]);
 
   useEffect(() => {
     if (error) {
-      console.log(error, "video player error");
-      console.log("Replacing url ", remoteUrl);
-
+      console.error(
+        `[PLAYBACK] [ERROR] Video playback failed for "${file.uploadName || "unnamed"}" (Index: ${index + 1} of ${total})! Reason/Error: ${error.message || String(error)}. Replacing with remote URL: ${remoteUrl || uri}`
+      );
       player.replaceAsync(remoteUrl || uri);
     }
-  }, [error, player]);
+  }, [error, player, index, total]);
 
   return (
     <View className="relative justify-center items-center">
@@ -586,9 +614,13 @@ function VideoWrapper({
 function AdIframe({
   file,
   screenConfig,
+  index,
+  total,
 }: {
   file: Ad;
   screenConfig: ScreenConfig;
+  index: number;
+  total: number;
 }) {
   const { width, height } = useScreenDimensions();
   const [uri, setUri] = useState(
@@ -596,6 +628,12 @@ function AdIframe({
       location: screenConfig?.city || "",
     }).toString()}`
   );
+
+  useEffect(() => {
+    console.log(
+      `[PLAYBACK] [INFO] Rendering IFrame: "${file.uploadName || "unnamed"}" (Index: ${index + 1} of ${total}) (URI: ${uri})`
+    );
+  }, [file.uploadRef, index, total]);
 
   return (
     <WebView
@@ -609,8 +647,9 @@ function AdIframe({
       source={{ uri }}
       allowFileAccess
       onError={() => {
-        // swap to fallback URL if main one fails
-        console.log("iframe failed to load, using remote url ", file.remoteUrl);
+        console.error(
+          `[PLAYBACK] [ERROR] IFrame failed to load: ${uri} (Index: ${index + 1} of ${total}). Replacing with remote URL: ${file.remoteUrl}`
+        );
         if (file.remoteUrl) {
           setUri(file.remoteUrl);
         }
@@ -697,13 +736,7 @@ function usePlayingAds({
     });
   }, [sequence, sendLog]);
 
-  console.log(
-    sequence[currentAdIndex]?.adUrl || sequence[currentAdIndex]?.remoteUrl,
-    "rendering ",
-    sequence[currentAdIndex]?.adType,
-    "ad, at index: ",
-    currentAdIndex
-  );
+  // General log removed as individual wrappers provide detailed structured logs
 
   useEffect(() => {
     setCurrentAdIndex(

@@ -52,6 +52,10 @@ export const AdContext = createContext<ContextProps>({
 });
 
 function AdProvider({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    console.log("[BOOT] [INFO] AdProvider initialized.");
+  }, []);
+
   const [ads, setAds] = useState<Ad[]>([]);
   const [screenConfig, setScreenConfig] = useState<ScreenConfig>({
     city: "",
@@ -99,15 +103,15 @@ function AdProvider({ children }: { children: React.ReactNode }) {
           remoteUrl: ad.adUrl,
         }));
 
-        console.log("setting ads");
+        console.log("[CACHE] [INFO] Setting ads state...");
         setAds(adsWithCachedUris);
         setItem({ ads: adsWithCachedUris, screen: config });
         setScreenConfig(config);
-        console.log("loaded ads from background");
+        console.log("[CACHE] [INFO] Loaded ads from background successfully.");
 
         setSafeToPlay(true);
       } catch (error) {
-        console.log(error, " setReceivedAds");
+        console.error("[CACHE] [ERROR] Failed to set received ads:", error);
         // Fallback: use uncached URLs to avoid recursion and still enable playback
         try {
           const adsWithRemoteUris = ads.map((ad) => ({
@@ -119,7 +123,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
           setScreenConfig(config);
           setSafeToPlay(true);
         } catch (innerError) {
-          console.log(innerError, " setReceivedAds fallback failed");
+          console.error("[CACHE] [ERROR] Fallback failed for setting received ads:", innerError);
         }
       }
     },
@@ -140,7 +144,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     const dirInfo = documentDir.info();
     if (dirInfo.exists) {
       if (isForeground) {
-        console.log("Starting deletion of media and HTML files");
+        console.log("[CACHE] [INFO] Deleting obsolete local files...");
       }
 
       const contents = documentDir.list();
@@ -170,7 +174,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       for (const file of mediaFiles) {
         try {
           if (isForeground) {
-            console.log(`Deleting file: ${file.name}`);
+            console.log(`[CACHE] [INFO] Deleted obsolete file: ${file.name}`);
           }
           file.delete();
         } catch (error) {
@@ -179,11 +183,11 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (isForeground) {
-        console.log("Completed deletion of media and HTML files");
+        console.log("[CACHE] [INFO] Completed deletion of obsolete local media files.");
       }
     } else {
       if (isForeground) {
-        console.log("Directory does not exist");
+        console.log("[CACHE] [INFO] Local documents directory does not exist yet.");
       }
     }
   };
@@ -206,12 +210,12 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       existingFileInfo.size > 0
     ) {
       console.log(
-        `File ${filename} already exists and is valid (size: ${existingFileInfo.size}), skipping download`
+        `[CACHE] [INFO] Cache Hit: ${filename} is valid (size: ${existingFileInfo.size} bytes). Skipping download.`
       );
       localPaths.push(targetFile.uri);
       return;
     } else if (existingFileInfo.exists) {
-      console.log(`Deleting invalid existing file ${filename}`);
+      console.log(`[CACHE] [INFO] Deleting invalid/corrupt cached file: ${filename}`);
       targetFile.delete();
     }
 
@@ -222,7 +226,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     while (!downloadSuccess && retryCount < maxRetries) {
       try {
         console.log(
-          `Attempting to download ${filename} from ${url} (attempt ${
+          `[CACHE] [INFO] Cache Miss: Downloading ${filename} from URL (Attempt ${
             retryCount + 1
           }/${maxRetries})`
         );
@@ -248,25 +252,29 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
         if (retryCount > 0) {
           console.log(
-            `Successfully downloaded ${filename} after ${
+            `[CACHE] [INFO] Successfully downloaded ${filename} after ${
               retryCount + 1
-            } attempts`
+            } attempts.`
+          );
+        } else {
+          console.log(
+            `[CACHE] [INFO] Download Successful: ${filename} (size: ${targetFile.info().size} bytes).`
           );
         }
       } catch (error) {
         retryCount++;
-        console.log(
-          `Failed to download ${filename} on attempt ${retryCount}/${maxRetries}:`,
+        console.error(
+          `[CACHE] [ERROR] Download Failed for ${filename} on attempt ${retryCount}/${maxRetries}:`,
           error
         );
 
         if (retryCount === maxRetries) {
-          console.log(
-            `Failed to download ${filename} after ${maxRetries} attempts, skipping file`
+          console.error(
+            `[CACHE] [ERROR] Download Failed for ${filename} after ${maxRetries} attempts. Using original URL as fallback.`
           );
           localPaths.push(url); // Use original URL as fallback
         } else {
-          console.log(`Waiting ${delay}ms before retry...`);
+          console.log(`[CACHE] [INFO] Waiting ${delay}ms before retrying download...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
@@ -278,8 +286,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
 
     // Check file exists and has size
     if (!info.exists || info.size === 0) {
-      console.log(
-        `File validation failed: ${file.name} - doesn't exist or empty`
+      console.error(
+        `[CACHE] [ERROR] File validation failed for ${file.name}: File does not exist or is empty.`
       );
       return false;
     }
@@ -308,12 +316,12 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     ];
 
     if (!validExtensions.includes(`.${extension}`)) {
-      console.log(`File validation failed: ${file.name} - invalid extension`);
+      console.error(`[CACHE] [ERROR] File validation failed for ${file.name}: Invalid extension.`);
       return false;
     }
 
     console.log(
-      `File validation passed: ${file.name} (size: ${info.size} bytes)`
+      `[CACHE] [INFO] File validation passed for ${file.name} (size: ${info.size} bytes).`
     );
     return true;
   };
@@ -330,9 +338,9 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
 
       if (isForeground) {
-        console.log("downloading ads");
+        console.log(`[CACHE] [INFO] Starting download/sync for ${urls.length} media assets.`);
       } else {
-        console.log("downloading ads in background");
+        console.log(`[CACHE] [INFO] Starting background download/sync for ${urls.length} media assets.`);
       }
 
       const localPaths: string[] = [];
@@ -355,9 +363,9 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (isForeground) {
-        console.log("downloading ads successful");
+        console.log("[CACHE] [INFO] Ad download and cache synchronization completed successfully.");
       } else {
-        console.log("downloading ads in background successful");
+        console.log("[CACHE] [INFO] Background ad download and cache synchronization completed successfully.");
       }
 
       setDownloadProgressData(null);
@@ -365,7 +373,7 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return localPaths;
     } catch (error) {
-      console.log(error);
+      console.error("[CACHE] [ERROR] Ad download/cache synchronization failed:", error);
       setLoading(false);
       throw error; // Re-throw to handle in the main functions
     }
@@ -416,11 +424,11 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         setrequest(true);
         setSafeToPlay(true);
         alreadyUsingLocal.current = true;
-        console.log("using local on load");
+        console.log("[BOOT] [INFO] Loaded cached campaigns from local storage on mount.");
         return;
       }
       console.log(
-        `fetching new ads from: ${backendUrl}/v1/public-advert/campaigns/${deviceCode}`
+        `[NET] [INFO] Fetching new ads from API: ${backendUrl}/v1/public-advert/campaigns/${deviceCode}`
       );
 
       const response = await fetch(
@@ -434,17 +442,17 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       const ads = data.data[0].campaigns;
       const adsWithRemovedExpiredAds = ads.filter((ad) => !adNotActive(ad));
       const mediaUrls = adsWithRemovedExpiredAds.map((ad) => ad.adUrl);
-      console.log("ads fetch, cahing ads...");
+      console.log("[CACHE] [INFO] Ads fetched from API. Syncing cache...");
 
       const cachedUrls = await cacheAds(mediaUrls);
-      console.log("cached ads");
+      console.log("[CACHE] [INFO] Cache sync completed.");
 
       const adsWithCachedUris = ads.map((ad, index) => ({
         ...ad,
         remoteUrl: ad.adUrl,
         adUrl: cachedUrls[index],
       }));
-      console.log("setting ads");
+      console.log("[CACHE] [INFO] Setting ads state...");
 
       setAds(adsWithCachedUris);
       setItem({ ads: adsWithCachedUris, screen: data.config });
@@ -453,26 +461,24 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       setAdsFetchFromApi(false);
       alreadyUsingLocal.current = false;
     } catch (error: any) {
-      console.log(error);
+      console.error("[NET] [ERROR] Fetching ads from API failed:", error);
       if (
         localLoaded.current &&
         localItem.current &&
         !alreadyUsingLocal.current
       ) {
         alreadyUsingLocal.current = true;
-        console.log("fetch failed, using local");
+        console.log("[BOOT] [INFO] Fetch failed. Using local storage cached campaigns.");
 
         setAds(localItem.current.ads as Ad[]);
         setScreenConfig(localItem.current.screen as ScreenConfig);
         setrequest(true);
         setSafeToPlay(true);
       } else {
-        console.log("nothing in local, waiting");
+        console.log("[BOOT] [INFO] Nothing in local storage, waiting to retry fetch...");
       }
-      console.log(
-        error.response?.data?.message || error.message,
-        " ",
-        deviceCode
+      console.error(
+        `[NET] [ERROR] Retry fetch error: ${error.response?.data?.message || error.message} (Device: ${deviceCode})`
       );
       fetchTimeoutRef.current = setTimeout(() => {
         fetchAds();

@@ -8,10 +8,7 @@ function useDeviceCode() {
   const { item: deviceCode, loaded, setItem } = useAsyncStorage("device-code");
 
   useEffect(() => {
-    if (
-      (!deviceCode || deviceCode === "undefined" || deviceCode === null) &&
-      loaded
-    ) {
+    if ((!deviceCode || deviceCode === "undefined" || deviceCode === null) && loaded) {
       setItem(nanoid(6));
     }
   }, [deviceCode, loaded, setItem]);

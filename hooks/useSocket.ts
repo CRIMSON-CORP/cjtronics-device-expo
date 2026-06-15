@@ -39,7 +39,7 @@ function useSocket({
     const myConnectionId = ++connectionIdRef.current; // unique for this attempt
 
     if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-      console.error("Max reconnection attempts reached. Stopping.");
+      console.error("[NET] [ERROR] Max reconnection attempts reached. Stopping.");
       return;
     }
 
@@ -52,7 +52,7 @@ function useSocket({
       socketRef.current = null;
     }
 
-    console.log(`Connecting WS: ${WEBSOCKET_URL}?type=device&id=${deviceCode}`);
+    console.log(`[NET] [INFO] Connecting WS: ${WEBSOCKET_URL}?type=device&id=${deviceCode}`);
     const newSocket = new WebSocket(
       `${WEBSOCKET_URL}?type=device&id=${deviceCode}`
     );
@@ -65,7 +65,7 @@ function useSocket({
       setSocket(newSocket);
       socketRef.current = newSocket;
       reconnectAttemptsRef.current = 0;
-      console.log("WebSocket connected");
+      console.log("[NET] [INFO] WebSocket connected");
 
       // flush queued logs
       while (logQueueRef.current.length > 0) {
@@ -78,8 +78,8 @@ function useSocket({
       if (connectionIdRef.current !== myConnectionId) return; // stale
       setSocket(null);
       socketRef.current = null;
-      console.log(
-        `WebSocket closed: ${event.reason}. Reconnecting in ${
+      console.warn(
+        `[NET] [WARN] WebSocket closed: ${event.reason || "No reason given"}. Reconnecting in ${
           reconnectInterval / 1000
         }s...`
       );
@@ -91,7 +91,7 @@ function useSocket({
     };
 
     newSocket.onerror = (event) => {
-      console.log("WebSocket error:", event);
+      console.error("[NET] [ERROR] WebSocket error:", event);
       newSocket.close();
     };
 
@@ -106,7 +106,7 @@ function useSocket({
           newSocket.send(JSON.stringify({ event: "pong" }));
         }
       } catch (err) {
-        console.error("WS parse error:", err);
+        console.error("[NET] [ERROR] WS parse error:", err);
       }
     };
 
@@ -120,7 +120,7 @@ function useSocket({
 
     const unsubscribe = NetInfo.addEventListener((state) => {
       if (state.isConnected && !socketRef.current) {
-        console.log("Network back, trying WS reconnect...");
+        console.log("[NET] [INFO] Network back, trying WS reconnect...");
         connect();
       }
     });
@@ -159,11 +159,9 @@ function useSocket({
         socketRef.current.readyState === WebSocket.OPEN
       ) {
         socketRef.current.send(JSON.stringify(logPayload));
-        if (!fromQueue) console.log("Log sent:", params);
       } else {
         if (!fromQueue) {
           logQueueRef.current.push(params); // save for later
-          console.warn("Log queued:", params);
         }
       }
     },

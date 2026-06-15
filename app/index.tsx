@@ -8,7 +8,10 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Share,
+  Platform,
 } from "react-native";
+import { getCapturedLogsString } from "@/utils/logger";
 
 export default function index() {
   const { deviceCode, safeToPlay } = useAdContext();
@@ -18,6 +21,23 @@ export default function index() {
       router.replace("/player");
     }
   }, []);
+
+  const shareLogs = async () => {
+    try {
+      const text = getCapturedLogsString();
+      if (text && text.trim().length > 0) {
+        await Share.share({
+          message: text,
+          title: "App Logs",
+        });
+      } else {
+        Alert.alert("Logs Empty", "No logs have been recorded in this session yet.");
+      }
+    } catch (error) {
+      Alert.alert("Error", "Could not read or share the logs.");
+    }
+  };
+
 
   return (
     <View className="flex-1 flex flex-col justify-center gap-[5vh] items-center p-10 text-center bg-black">
@@ -35,6 +55,16 @@ export default function index() {
         Or visit <Link /> and enter the code below as your device ID to
         synchronise your device with the platform
       </Text>
+
+      {/* Share Logs Button */}
+      <TouchableOpacity
+        onPress={shareLogs}
+        className="mt-6 px-6 py-3 bg-zinc-800 rounded-full flex flex-row items-center gap-2 border border-zinc-700 active:opacity-80"
+      >
+        <Text className="text-white text-[max(1.2vw,12px)] font-semibold">
+          Share Logs File
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
