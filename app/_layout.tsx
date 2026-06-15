@@ -1,8 +1,4 @@
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -21,6 +17,7 @@ import {
   subscribeToDirectoryUri,
   requestAndSetLogDirectory,
 } from "@/utils/logger";
+import LogsOverlay from "@/components/LogsOverlay";
 
 // Initialize global logger as early as possible
 setupGlobalLogger();
@@ -52,11 +49,10 @@ function LogFolderBanner() {
   return (
     <View className="absolute bottom-6 left-6 right-6 p-4 bg-zinc-900/95 border border-amber-500/30 rounded-2xl flex flex-row items-center justify-between shadow-2xl z-50">
       <View className="flex-1 mr-4">
-        <Text className="text-amber-400 text-sm font-bold mb-1">
-          ⚠️ Enable File Manager Logs
-        </Text>
+        <Text className="text-amber-400 text-sm font-bold mb-1">⚠️ Enable File Manager Logs</Text>
         <Text className="text-zinc-300 text-xs leading-4">
-          To read logs when the app is closed, choose a folder (e.g. Downloads) to save app-logs.txt.
+          To read logs when the app is closed, choose a folder (e.g. Downloads) to save
+          app-logs.txt.
         </Text>
       </View>
       <View className="flex flex-row gap-2 items-center">
@@ -109,7 +105,7 @@ export default function RootLayout() {
       </AdProvider>
       <StatusBar hidden={true} />
       <LogFolderBanner />
+      <LogsOverlay />
     </ThemeProvider>
   );
 }
-
