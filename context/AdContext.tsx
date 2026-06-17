@@ -1,4 +1,5 @@
 import useAsyncStorage from "@/hooks/useAsyncStorage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import useDeviceCode from "@/hooks/useDeviceCode";
 import useSocket from "@/hooks/useSocket";
 import { adNotActive } from "@/utils";
@@ -50,6 +51,62 @@ export const AdContext = createContext<ContextProps>({
   adsBackgroundLoading: false,
   downloadProgressData: null,
 });
+
+const METADATA_KEY = "cache-metadata";
+
+interface FileMetadata {
+  size: number;
+  lastModified: string | null;
+  etag: string | null;
+}
+
+const getCacheMetadata = async (): Promise<Record<string, FileMetadata>> => {
+  try {
+    const val = await AsyncStorage.getItem(METADATA_KEY);
+    return val ? JSON.parse(val) : {};
+  } catch (e) {
+    console.error("[CACHE] Error reading cache-metadata from AsyncStorage:", e);
+    return {};
+  }
+};
+
+const updateCacheMetadata = async (filename: string, metadata: FileMetadata) => {
+  try {
+    const current = await getCacheMetadata();
+    current[filename] = metadata;
+    await AsyncStorage.setItem(METADATA_KEY, JSON.stringify(current));
+  } catch (e) {
+    console.error("[CACHE] Error updating cache-metadata in AsyncStorage:", e);
+  }
+};
+
+const removeCacheMetadata = async (filename: string) => {
+  try {
+    const current = await getCacheMetadata();
+    delete current[filename];
+    await AsyncStorage.setItem(METADATA_KEY, JSON.stringify(current));
+  } catch (e) {
+    console.error("[CACHE] Error removing cache-metadata from AsyncStorage:", e);
+  }
+};
+
+const pruneCacheMetadata = async (activeFilenames: Set<string>) => {
+  try {
+    const current = await getCacheMetadata();
+    let changed = false;
+    for (const key of Object.keys(current)) {
+      if (!activeFilenames.has(key)) {
+        delete current[key];
+        changed = true;
+      }
+    }
+    if (changed) {
+      await AsyncStorage.setItem(METADATA_KEY, JSON.stringify(current));
+    }
+  } catch (e) {
+    console.error("[CACHE] Error pruning cache-metadata:", e);
+  }
+};
 
 function AdProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -136,16 +193,26 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     deviceCode,
   });
 
-  // Utility function to delete media files from directory
-  const deleteMediaFiles = (
+  // Utility function to delete media files from directory that are not in the active campaigns list
+  const deleteObsoleteMediaFiles = (
     documentDir: Directory,
+    activeUrls: string[],
     isForeground: boolean = false
   ) => {
     const dirInfo = documentDir.info();
     if (dirInfo.exists) {
       if (isForeground) {
-        console.log("[CACHE] [INFO] Deleting obsolete local files...");
+        console.log("[CACHE] [INFO] Pruning obsolete local files...");
       }
+
+      const activeFilenames = new Set(
+        activeUrls.map((url) => url.split("/").pop() || "").filter(Boolean)
+      );
+
+      // Trigger AsyncStorage metadata pruning
+      pruneCacheMetadata(activeFilenames).catch((err) => {
+        console.error("[CACHE] Error pruning cache metadata:", err);
+      });
 
       const contents = documentDir.list();
       const targetExtensions = [
@@ -163,6 +230,9 @@ function AdProvider({ children }: { children: React.ReactNode }) {
         ".mkv",
         ".wmv",
         ".flv",
+        // HTML extensions
+        ".html",
+        ".htm",
       ];
 
       const mediaFiles = contents.filter(
@@ -171,19 +241,23 @@ function AdProvider({ children }: { children: React.ReactNode }) {
           targetExtensions.some((ext) => item.name.toLowerCase().endsWith(ext))
       );
 
+      let deletedCount = 0;
       for (const file of mediaFiles) {
-        try {
-          if (isForeground) {
-            console.log(`[CACHE] [INFO] Deleted obsolete file: ${file.name}`);
+        if (file instanceof ExpoFile && !activeFilenames.has(file.name)) {
+          try {
+            if (isForeground) {
+              console.log(`[CACHE] [INFO] Deleted obsolete file: ${file.name}`);
+            }
+            file.delete();
+            deletedCount++;
+          } catch (error) {
+            console.error(`Failed to delete file: ${file.name}`, error);
           }
-          file.delete();
-        } catch (error) {
-          console.error(`Failed to delete file: ${file.name}`, error);
         }
       }
 
       if (isForeground) {
-        console.log("[CACHE] [INFO] Completed deletion of obsolete local media files.");
+        console.log(`[CACHE] [INFO] Completed deletion of ${deletedCount} obsolete local media files.`);
       }
     } else {
       if (isForeground) {
@@ -202,21 +276,109 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     const filename = url.split("/").pop() || "unknown";
     const targetFile = new ExpoFile(documentDir, filename);
 
-    // Check if file already exists and is valid
+    // Check if file already exists
     const existingFileInfo = targetFile.info();
     if (
       existingFileInfo.exists &&
-      existingFileInfo?.size &&
+      existingFileInfo.size &&
       existingFileInfo.size > 0
     ) {
-      console.log(
-        `[CACHE] [INFO] Cache Hit: ${filename} is valid (size: ${existingFileInfo.size} bytes). Skipping download.`
-      );
-      localPaths.push(targetFile.uri);
-      return;
+      console.log(`[CACHE] [INFO] File exists locally: ${filename}. Checking for server updates...`);
+      
+      let shouldDownload = false;
+      let remoteMetadata: { contentLength: number | null; etag: string | null; lastModified: string | null } | null = null;
+      
+      try {
+        // We do a fetch HEAD call
+        const headResponse = await fetch(url, {
+          method: "HEAD",
+        });
+        
+        if (headResponse.ok) {
+          const contentLengthStr = headResponse.headers.get("content-length");
+          const etagStr = headResponse.headers.get("etag");
+          const lastModifiedStr = headResponse.headers.get("last-modified");
+          
+          remoteMetadata = {
+            contentLength: contentLengthStr ? parseInt(contentLengthStr, 10) : null,
+            etag: etagStr ? etagStr.replace(/["']/g, "") : null,
+            lastModified: lastModifiedStr || null,
+          };
+        } else {
+          console.warn(`[CACHE] HEAD check failed with status ${headResponse.status} for ${filename}. Falling back to GET Range request check.`);
+          // Some CDNs might block HEAD but allow GET. Let's try to get headers using a range GET of 0-0 bytes
+          const rangeResponse = await fetch(url, {
+            method: "GET",
+            headers: { Range: "bytes=0-0" }
+          });
+          if (rangeResponse.ok) {
+            const contentLengthStr = rangeResponse.headers.get("content-range")?.split("/")?.pop() || rangeResponse.headers.get("content-length");
+            const etagStr = rangeResponse.headers.get("etag");
+            const lastModifiedStr = rangeResponse.headers.get("last-modified");
+            remoteMetadata = {
+              contentLength: contentLengthStr ? parseInt(contentLengthStr, 10) : null,
+              etag: etagStr ? etagStr.replace(/["']/g, "") : null,
+              lastModified: lastModifiedStr || null,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`[CACHE] Network check failed when querying headers for ${filename}:`, err);
+      }
+      
+      if (remoteMetadata) {
+        // Compare with local file size
+        const localSize = existingFileInfo.size;
+        const remoteSize = remoteMetadata.contentLength;
+        
+        if (remoteSize !== null && localSize !== remoteSize) {
+          console.log(`[CACHE] [INFO] Size mismatch for ${filename}. Local: ${localSize} bytes, Remote: ${remoteSize} bytes. Will re-download.`);
+          shouldDownload = true;
+        } else {
+          // Compare with cached metadata (ETag & Last-Modified)
+          const localMetadata = (await getCacheMetadata())[filename];
+          if (localMetadata) {
+            const etagChanged = !!(remoteMetadata.etag && localMetadata.etag && remoteMetadata.etag !== localMetadata.etag);
+            const lastModifiedChanged = !!(remoteMetadata.lastModified && localMetadata.lastModified && remoteMetadata.lastModified !== localMetadata.lastModified);
+            
+            if (etagChanged || lastModifiedChanged) {
+              console.log(
+                `[CACHE] [INFO] Metadata changed for ${filename}. ` +
+                `(ETag changed: ${etagChanged}, Last-Modified changed: ${lastModifiedChanged}). Will re-download.`
+              );
+              shouldDownload = true;
+            }
+          }
+        }
+      } else {
+        // If we couldn't get remote headers (e.g. network offline, CDN blocks, etc.),
+        // we fallback to trusting the existing local file rather than redownloading or streaming.
+        console.log(`[CACHE] [INFO] Server metadata unavailable. Trusting existing cached file: ${filename}`);
+      }
+      
+      if (!shouldDownload) {
+        console.log(`[CACHE] [INFO] Cache Hit: ${filename} is up-to-date. Skipping download.`);
+        localPaths.push(targetFile.uri);
+        
+        // Ensure local metadata entry is saved if we had a success from HEAD but no metadata was stored yet
+        if (remoteMetadata) {
+          await updateCacheMetadata(filename, {
+            size: existingFileInfo.size,
+            etag: remoteMetadata.etag,
+            lastModified: remoteMetadata.lastModified
+          });
+        }
+        return;
+      } else {
+        // Delete the outdated local file before re-downloading
+        console.log(`[CACHE] [INFO] Deleting outdated local file: ${filename}`);
+        targetFile.delete();
+        await removeCacheMetadata(filename);
+      }
     } else if (existingFileInfo.exists) {
       console.log(`[CACHE] [INFO] Deleting invalid/corrupt cached file: ${filename}`);
       targetFile.delete();
+      await removeCacheMetadata(filename);
     }
 
     let downloadSuccess = false;
@@ -231,20 +393,33 @@ function AdProvider({ children }: { children: React.ReactNode }) {
           }/${maxRetries})`
         );
 
-        const downloadedFile = await ExpoFile.downloadFileAsync(
-          url,
-          targetFile,
-          {
-            headers: {
-              Accept: "*/*",
-              "User-Agent": "YourApp/1.0",
-            },
-          }
-        );
+        // Remove headers completely (so it uses system User-Agent) to avoid CDN 403 blocks
+        const downloadedFile = await ExpoFile.downloadFileAsync(url, targetFile);
 
         // Validate the downloaded file
         if (!validateDownloadedFile(targetFile)) {
           throw new Error(`File validation failed for ${filename}`);
+        }
+
+        // Save metadata on successful download
+        try {
+          const finalInfo = targetFile.info();
+          if (finalInfo.exists && finalInfo.size) {
+            const headResponse = await fetch(url, { method: "HEAD" });
+            let etag: string | null = null;
+            let lastModified: string | null = null;
+            if (headResponse.ok) {
+              etag = headResponse.headers.get("etag")?.replace(/["']/g, "") || null;
+              lastModified = headResponse.headers.get("last-modified") || null;
+            }
+            await updateCacheMetadata(filename, {
+              size: finalInfo.size,
+              etag,
+              lastModified
+            });
+          }
+        } catch (metaErr) {
+          console.warn(`[CACHE] Failed to save metadata for downloaded file ${filename}:`, metaErr);
         }
 
         localPaths.push(downloadedFile.uri);
@@ -346,8 +521,8 @@ function AdProvider({ children }: { children: React.ReactNode }) {
       const localPaths: string[] = [];
       const documentDir = Paths.document;
 
-      // Delete all existing files before downloading
-      deleteMediaFiles(documentDir, isForeground);
+      // Smart pruning: only delete obsolete files no longer present in incoming URLs
+      deleteObsoleteMediaFiles(documentDir, urls, isForeground);
 
       // Download each URL sequentially
       setDownloadProgressData({
@@ -375,37 +550,90 @@ function AdProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("[CACHE] [ERROR] Ad download/cache synchronization failed:", error);
       setLoading(false);
-      throw error; // Re-throw to handle in the main functions
+      throw error; // Re-throw to handle in the retry function
     }
+  };
+
+  // Wrapper function to handle retries with exponential backoff
+  const performAdDownloadWithRetry = async (
+    urls: string[],
+    setLoading: (loading: boolean) => void,
+    logPrefix: string,
+    isForeground: boolean,
+    baseDelay: number,
+    maxRetries = 5
+  ): Promise<string[]> => {
+    let attempts = 0;
+    while (attempts < maxRetries) {
+      try {
+        return await performAdDownload(
+          urls,
+          setLoading,
+          logPrefix,
+          isForeground,
+          baseDelay
+        );
+      } catch (error) {
+        attempts++;
+        if (attempts >= maxRetries) {
+          console.error(
+            `[CACHE] [ERROR] ${logPrefix ? `[${logPrefix}] ` : ""}Sync failed after ${maxRetries} attempts. Stopping retry loop.`,
+            error
+          );
+          throw error;
+        }
+        const backoffDelay = baseDelay * Math.pow(2, attempts);
+        console.warn(
+          `[CACHE] [WARNING] ${logPrefix ? `[${logPrefix}] ` : ""}Sync attempt ${attempts}/${maxRetries} failed. Retrying in ${backoffDelay}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+      }
+    }
+    throw new Error("Sync failed");
   };
 
   // Background download function
   const cacheAdsInBackground = useCallback(async (urls: string[]) => {
     try {
-      return await performAdDownload(
+      return await performAdDownloadWithRetry(
         urls,
         setAdsBackgroundLoading,
         "background",
         false,
-        1000 // 1s delay for background
+        1000, // 1s base delay
+        5 // max 5 retries
       );
     } catch (error) {
-      return cacheAdsInBackground(urls); // Keep your existing recursive retry
+      console.error("[CACHE] [ERROR] Background caching sync ultimately failed. Falling back to remote URLs where cached files are missing.", error);
+      // Construct fallback localPaths list: for each URL, if it's downloaded, use local URI; otherwise use remote URL.
+      const documentDir = Paths.document;
+      return urls.map((url) => {
+        const filename = url.split("/").pop() || "unknown";
+        const file = new ExpoFile(documentDir, filename);
+        return file.info().exists ? file.uri : url;
+      });
     }
   }, []);
 
   // Foreground download function
   const cacheAds = useCallback(async (urls: string[]) => {
     try {
-      return await performAdDownload(
+      return await performAdDownloadWithRetry(
         urls,
         setAdLoading,
-        "",
+        "foreground",
         true, // isForeground
-        1000 // 1s fixed delay for foreground (no exponential backoff)
+        1000, // 1s base delay
+        5 // max 5 retries
       );
     } catch (error) {
-      return await cacheAds(urls); // Keep your existing recursive retry
+      console.error("[CACHE] [ERROR] Foreground caching sync ultimately failed. Falling back to remote URLs where cached files are missing.", error);
+      const documentDir = Paths.document;
+      return urls.map((url) => {
+        const filename = url.split("/").pop() || "unknown";
+        const file = new ExpoFile(documentDir, filename);
+        return file.info().exists ? file.uri : url;
+      });
     }
   }, []);
 
