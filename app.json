@@ -47,7 +47,8 @@
       ],
       "expo-font",
       "expo-video",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./withAutoStart.js"
     ],
     "experiments": {
       "typedRoutes": true
